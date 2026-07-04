@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>프롬프트 저장소</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232E8DEE'/%3E%3Cpath d='M20 22 L28 32 L20 42' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='33' y1='42' x2='45' y2='42' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#EFF1F4; --card:#FFFFFF; --card2:#F1F3F6; --track:#E4E6EB;
+  --accent:#2E8DEE; --green:#00AE42; --success:#1FAE64; --danger:#E8453C;
+  --text:#1A1C1E; --sub:#8B9097; --faint:#AAB0B7;
+  --border:rgba(0,0,0,.08); --shadow:0 2px 12px rgba(0,0,0,.07);
+  --radius:20px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0E0F12; --card:#191B20; --card2:#24272E; --track:#2A2E35;
+    --accent:#4C9DF5; --green:#00AE42; --success:#36C07B; --danger:#FF5B52;
+    --text:#ECEDEF; --sub:#9AA0A8; --faint:#71767F;
+    --border:rgba(255,255,255,.08); --shadow:0 10px 26px rgba(0,0,0,.34);
+  }
+}
+[data-theme="light"]{
+  --bg:#EFF1F4; --card:#FFFFFF; --card2:#F1F3F6; --track:#E4E6EB;
+  --accent:#2E8DEE; --green:#00AE42; --success:#1FAE64; --danger:#E8453C;
+  --text:#1A1C1E; --sub:#8B9097; --faint:#AAB0B7;
+  --border:rgba(0,0,0,.08); --shadow:0 2px 12px rgba(0,0,0,.07);
+}
+[data-theme="dark"]{
+  --bg:#0E0F12; --card:#191B20; --card2:#24272E; --track:#2A2E35;
+  --accent:#4C9DF5; --green:#00AE42; --success:#36C07B; --danger:#FF5B52;
+  --text:#ECEDEF; --sub:#9AA0A8; --faint:#71767F;
+  --border:rgba(255,255,255,.08); --shadow:0 10px 26px rgba(0,0,0,.34);
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%; margin:0;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"NanumGothic","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  font-size:14px; -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit;}
+input,textarea{font-family:inherit; color:inherit;}
+.tabnum{font-variant-numeric:tabular-nums;}
+
+#app{display:flex; height:100%;}
+
+/* ---------- Sidebar ---------- */
+#sidebar{
+  width:340px; min-width:340px; height:100%;
+  background:var(--card); border-right:0.8px solid var(--border);
+  display:flex; flex-direction:column;
+}
+#sidebar .side-head{padding:18px 18px 10px 18px;}
+#sidebar h1{margin:0; font-size:22px; font-weight:700; letter-spacing:-.2px;}
+#sidebar .subtitle{margin:2px 0 0 0; font-size:13px; color:var(--sub);}
+.search-wrap{padding:6px 18px 10px 18px;}
+.search{
+  width:100%; height:38px; border-radius:11px; border:0.8px solid var(--border);
+  background:var(--card2); padding:0 14px; font-size:14px; outline:none;
+}
+.search:focus{border-color:var(--accent);}
+.tagbar{padding:0 18px 8px 18px; overflow-x:auto; white-space:nowrap;}
+.tagbar::-webkit-scrollbar{height:0;}
+.chip{
+  display:inline-block; margin:0 6px 6px 0; padding:5px 11px; border-radius:999px;
+  font-size:12px; background:var(--card2); border:0.8px solid var(--border); color:var(--sub);
+}
+.chip.on{background:var(--accent); color:#fff; border-color:transparent;}
+
+#list{flex:1; overflow-y:auto; padding:4px 12px 12px 12px;}
+.pcard{
+  position:relative; background:var(--card2); border:0.8px solid var(--border);
+  border-radius:14px; padding:12px 12px 11px 12px; margin:0 0 9px 0;
+}
+.pcard.sel{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset;}
+.pcard .t{font-size:15px; font-weight:600; margin:0 64px 4px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pcard .snip{font-size:12.5px; color:var(--sub); line-height:1.45; max-height:37px; overflow:hidden;}
+.pcard .ctags{margin-top:7px;}
+.pcard .mini{display:inline-block; font-size:11px; color:var(--faint); margin:0 6px 0 0;}
+.pcard .copy{
+  position:absolute; top:10px; right:10px; padding:5px 10px; border-radius:9px;
+  font-size:11.5px; font-weight:600; background:var(--card); border:0.8px solid var(--border); color:var(--accent);
+}
+.pcard .copy.done{background:var(--success); color:#fff; border-color:transparent;}
+.empty{padding:34px 18px; text-align:center; color:var(--faint); font-size:13px; line-height:1.6;}
+
+.new-wrap{padding:2px 14px 10px 14px;}
+.newbig{
+  width:100%; height:44px; border-radius:12px; font-size:14.5px; font-weight:700;
+  background:var(--accent); color:#fff; box-shadow:var(--shadow);
+}
+.savestat{font-size:12px; font-weight:600; color:var(--success); margin:0 12px 0 8px; white-space:nowrap;}
+.savestat.saving{color:var(--sub);}
+.side-foot{padding:10px 14px 14px 14px; border-top:0.8px solid var(--border);}
+.side-foot button{
+  display:inline-block; height:34px; padding:0 12px; border-radius:10px; font-size:12.5px; font-weight:600;
+  background:var(--card2); border:0.8px solid var(--border); margin:0 6px 0 0;
+}
+.side-foot button.primary{background:var(--accent); color:#fff; border-color:transparent;}
+
+/* ---------- Main ---------- */
+#main{flex:1; height:100%; display:flex; flex-direction:column; min-width:0;}
+.main-head{
+  padding:16px 22px 12px 22px; border-bottom:0.8px solid var(--border);
+  display:flex; align-items:center;
+}
+.main-head .htitle{flex:1; min-width:0;}
+.main-head h2{margin:0; font-size:18px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.main-head .hsub{margin:2px 0 0 0; font-size:12.5px; color:var(--sub);}
+.seg{display:inline-flex; background:var(--card2); border:0.8px solid var(--border); border-radius:11px; padding:3px; margin:0 0 0 14px;}
+.seg button{padding:6px 16px; border-radius:8px; font-size:13px; font-weight:600; color:var(--sub);}
+.seg button.on{background:var(--card); color:var(--text); box-shadow:var(--shadow);}
+.del{margin-left:10px; padding:7px 12px; border-radius:10px; font-size:12.5px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--danger);}
+
+#body-area{flex:1; overflow-y:auto; padding:20px 22px 28px 22px;}
+
+/* editor */
+.field{margin:0 0 16px 0;}
+.field label{display:block; font-size:12.5px; font-weight:600; color:var(--sub); margin:0 0 6px 2px;}
+.field .inp{
+  width:100%; height:42px; border-radius:12px; border:0.8px solid var(--border);
+  background:var(--card); padding:0 14px; font-size:15px; outline:none;
+}
+.field .inp:focus,.field .ta:focus{border-color:var(--accent);}
+.field .ta{
+  width:100%; min-height:320px; border-radius:14px; border:0.8px solid var(--border);
+  background:var(--card); padding:14px; font-size:14.5px; line-height:1.6; outline:none; resize:vertical;
+  font-family:"SFMono-Regular",Menlo,Consolas,monospace;
+}
+.hint{font-size:12px; color:var(--faint); margin:6px 0 0 2px;}
+
+/* preview */
+.varbox{background:var(--card); border:0.8px solid var(--border); border-radius:14px; padding:14px 16px 4px 16px; margin:0 0 16px 0;}
+.varbox .vh{font-size:12.5px; font-weight:600; color:var(--sub); margin:0 0 10px 0;}
+.varrow{display:flex; align-items:center; margin:0 0 10px 0;}
+.varrow .vk{width:130px; min-width:130px; font-size:13px; font-weight:600; color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:10px;}
+.varrow .vv{flex:1; height:38px; border-radius:10px; border:0.8px solid var(--border); background:var(--card2); padding:0 12px; font-size:14px; outline:none;}
+.varrow .vv:focus{border-color:var(--accent);}
+
+.prev-head{display:flex; align-items:center; margin:0 0 12px 0;}
+.prev-head .pl{flex:1; font-size:12.5px; font-weight:600; color:var(--sub);}
+.copybtn{
+  padding:9px 18px; border-radius:11px; font-size:13.5px; font-weight:700;
+  background:var(--accent); color:#fff; box-shadow:var(--shadow);
+}
+.copybtn.done{background:var(--success);}
+.rendered{
+  background:var(--card); border:0.8px solid var(--border); border-radius:16px;
+  padding:20px 22px; font-size:15px; line-height:1.7; word-break:break-word;
+}
+.rendered h1{font-size:24px; margin:.4em 0 .3em;}
+.rendered h2{font-size:20px; margin:.5em 0 .3em;}
+.rendered h3{font-size:17px; margin:.6em 0 .3em;}
+.rendered p{margin:.5em 0;}
+.rendered ul,.rendered ol{margin:.5em 0; padding-left:1.4em;}
+.rendered li{margin:.2em 0;}
+.rendered code{background:var(--card2); border-radius:6px; padding:2px 6px; font-family:"SFMono-Regular",Menlo,Consolas,monospace; font-size:13.5px;}
+.rendered pre{background:var(--card2); border:0.8px solid var(--border); border-radius:12px; padding:14px 16px; overflow-x:auto; margin:.7em 0;}
+.rendered pre code{background:none; padding:0;}
+.rendered blockquote{border-left:3px solid var(--track); margin:.6em 0; padding:.1em 0 .1em 14px; color:var(--sub);}
+.rendered a{color:var(--accent);}
+.rendered .ph{background:rgba(232,69,60,.14); color:var(--danger); border-radius:5px; padding:1px 5px; font-weight:600;}
+
+.center-empty{flex:1; display:flex; align-items:center; justify-content:center; color:var(--faint); font-size:14px; text-align:center; line-height:1.7; padding:20px;}
+
+/* narrow */
+@media (max-width:720px){
+  #sidebar{width:150px; min-width:150px;}
+  #sidebar h1{font-size:18px;}
+  .varrow .vk{width:96px; min-width:96px;}
+}
+.toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+  background:var(--text); color:var(--bg); padding:10px 18px; border-radius:12px;
+  font-size:13px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,.28); opacity:0; pointer-events:none;
+  transition:opacity .18s;
+}
+.toast.on{opacity:1;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="side-head">
+      <h1>프롬프트 저장소</h1>
+      <p class="subtitle" id="countsub">0개의 프롬프트</p>
+    </div>
+    <div class="search-wrap">
+      <input class="search" id="search" type="text" placeholder="제목·본문·태그 검색" autocomplete="off">
+    </div>
+    <div class="tagbar" id="tagbar"></div>
+    <div class="new-wrap"><button class="newbig" id="newbtn">+ 새 프롬프트 만들기</button></div>
+    <div id="list"></div>
+    <div class="side-foot">
+      <button id="exportbtn">내보내기</button>
+      <button id="importbtn">불러오기</button>
+      <input type="file" id="importfile" accept="application/json,.json" style="display:none">
+    </div>
+  </div>
+
+  <div id="main">
+    <div class="main-head" id="mainhead" style="display:none;">
+      <div class="htitle">
+        <h2 id="dtitle">제목</h2>
+        <p class="hsub" id="dsub"></p>
+      </div>
+      <span class="savestat" id="savestat">저장됨</span>
+      <div class="seg" id="seg">
+        <button data-mode="edit" class="on">편집</button>
+        <button data-mode="preview">미리보기</button>
+      </div>
+      <button class="del" id="delbtn">삭제</button>
+    </div>
+    <div id="body-area"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+(function(){
+
+/* ---------------- IndexedDB ---------------- */
+var DB=null;
+function openDB(cb){
+  var req=indexedDB.open("prompt_store",1);
+  req.onupgradeneeded=function(e){
+    var db=e.target.result;
+    if(!db.objectStoreNames.contains("prompts")){
+      db.createObjectStore("prompts",{keyPath:"id"});
+    }
+  };
+  req.onsuccess=function(e){ DB=e.target.result; cb(); };
+  req.onerror=function(){ cb(); };
+}
+function dbAll(cb){
+  if(!DB){ cb([]); return; }
+  var tx=DB.transaction("prompts","readonly");
+  var st=tx.objectStore("prompts");
+  var req=st.getAll();
+  req.onsuccess=function(){ cb(req.result||[]); };
+  req.onerror=function(){ cb([]); };
+}
+function dbPut(rec){
+  if(!DB) return;
+  var tx=DB.transaction("prompts","readwrite");
+  tx.objectStore("prompts").put(rec);
+}
+function dbDel(id){
+  if(!DB) return;
+  var tx=DB.transaction("prompts","readwrite");
+  tx.objectStore("prompts").delete(id);
+}
+
+/* ---------------- State ---------------- */
+var prompts=[];
+var selectedId=null;
+var query="";
+var activeTag=null;
+var mode="edit";
+var varValues={};
+var saveTimer=null;
+
+var $=function(id){ return document.getElementById(id); };
+
+function uid(){
+  return "p"+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36);
+}
+function nowISO(){ return new Date().toISOString(); }
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+/* ---------------- Template variables ---------------- */
+var VAR_RE=/\{\{\s*([^{}]+?)\s*\}\}/g;
+function extractVars(body){
+  var seen={}, out=[], m;
+  VAR_RE.lastIndex=0;
+  while((m=VAR_RE.exec(body))!==null){
+    var name=m[1].trim();
+    if(name && !seen[name]){ seen[name]=1; out.push(name); }
+  }
+  return out;
+}
+function fillVars(body, values){
+  return body.replace(VAR_RE,function(whole,name){
+    var k=name.trim();
+    var v=values[k];
+    if(v===undefined || v==="") return whole; /* leave placeholder if empty */
+    return v;
+  });
+}
+
+/* ---------------- Markdown (compact) ---------------- */
+function inlineMd(s){
+  s=s.replace(/`([^`]+?)`/g,function(_,c){ return "<code>"+c+"</code>"; });
+  s=s.replace(/!?\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s=s.replace(/\*\*([^*]+?)\*\*/g,"<strong>$1</strong>");
+  s=s.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g,"$1<em>$2</em>");
+  return s;
+}
+function mdToHtml(src){
+  var lines=String(src).replace(/\r\n/g,"\n").split("\n");
+  var html="", i=0, inCode=false, codeBuf=[], listType=null;
+  function closeList(){ if(listType){ html+="</"+listType+">"; listType=null; } }
+  for(i=0;i<lines.length;i++){
+    var line=lines[i];
+    var fence=line.match(/^```(.*)$/);
+    if(fence){
+      if(inCode){ html+="<pre><code>"+esc(codeBuf.join("\n"))+"</code></pre>"; codeBuf=[]; inCode=false; }
+      else { closeList(); inCode=true; }
+      continue;
+    }
+    if(inCode){ codeBuf.push(line); continue; }
+
+    if(/^\s*$/.test(line)){ closeList(); continue; }
+
+    var h=line.match(/^(#{1,3})\s+(.*)$/);
+    if(h){ closeList(); var lv=h[1].length; html+="<h"+lv+">"+inlineMd(esc(h[2]))+"</h"+lv+">"; continue; }
+
+    var qm=line.match(/^\s*>\s?(.*)$/);
+    if(qm){ closeList(); html+="<blockquote>"+inlineMd(esc(qm[1]))+"</blockquote>"; continue; }
+
+    var ul=line.match(/^\s*[-*]\s+(.*)$/);
+    if(ul){ if(listType!=="ul"){ closeList(); html+="<ul>"; listType="ul"; } html+="<li>"+inlineMd(esc(ul[1]))+"</li>"; continue; }
+
+    var ol=line.match(/^\s*\d+\.\s+(.*)$/);
+    if(ol){ if(listType!=="ol"){ closeList(); html+="<ol>"; listType="ol"; } html+="<li>"+inlineMd(esc(ol[1]))+"</li>"; continue; }
+
+    closeList();
+    html+="<p>"+inlineMd(esc(line))+"</p>";
+  }
+  if(inCode){ html+="<pre><code>"+esc(codeBuf.join("\n"))+"</code></pre>"; }
+  closeList();
+  return html;
+}
+/* highlight unfilled {{...}} after markdown */
+function highlightPlaceholders(html){
+  return html.replace(VAR_RE,function(whole,name){
+    return '<span class="ph">{{'+esc(name.trim())+'}}</span>';
+  });
+}
+
+/* ---------------- Data helpers ---------------- */
+function selected(){
+  for(var i=0;i<prompts.length;i++){ if(prompts[i].id===selectedId) return prompts[i]; }
+  return null;
+}
+function sortPrompts(){
+  prompts.sort(function(a,b){ return (b.updated||"").localeCompare(a.updated||""); });
+}
+function allTags(){
+  var seen={}, out=[];
+  for(var i=0;i<prompts.length;i++){
+    var t=prompts[i].tags||[];
+    for(var j=0;j<t.length;j++){ if(!seen[t[j]]){ seen[t[j]]=1; out.push(t[j]); } }
+  }
+  out.sort();
+  return out;
+}
+function visiblePrompts(){
+  var q=query.trim().toLowerCase();
+  return prompts.filter(function(p){
+    if(activeTag && (p.tags||[]).indexOf(activeTag)<0) return false;
+    if(!q) return true;
+    var hay=(p.title+" "+p.body+" "+(p.tags||[]).join(" ")).toLowerCase();
+    return hay.indexOf(q)>=0;
+  });
+}
+
+/* ---------------- Rendering ---------------- */
+function render(){
+  renderCount();
+  renderTags();
+  renderList();
+  renderMain();
+}
+function renderCount(){
+  $("countsub").textContent=prompts.length+"개의 프롬프트";
+}
+function renderTags(){
+  var tags=allTags();
+  var bar=$("tagbar");
+  bar.innerHTML="";
+  if(tags.length===0) return;
+  var all=document.createElement("span");
+  all.className="chip"+(activeTag===null?" on":"");
+  all.textContent="전체";
+  all.onclick=function(){ activeTag=null; render(); };
+  bar.appendChild(all);
+  tags.forEach(function(t){
+    var c=document.createElement("span");
+    c.className="chip"+(activeTag===t?" on":"");
+    c.textContent="#"+t;
+    c.onclick=function(){ activeTag=(activeTag===t?null:t); render(); };
+    bar.appendChild(c);
+  });
+}
+function renderList(){
+  var list=$("list");
+  list.innerHTML="";
+  var vis=visiblePrompts();
+  if(vis.length===0){
+    var e=document.createElement("div");
+    e.className="empty";
+    e.textContent=prompts.length===0 ? "저장된 프롬프트가 없습니다.\n+ 새 프롬프트로 시작하세요." : "검색 결과가 없습니다.";
+    list.appendChild(e);
+    return;
+  }
+  vis.forEach(function(p){
+    var card=document.createElement("div");
+    card.className="pcard"+(p.id===selectedId?" sel":"");
+    card.onclick=function(){ selectedId=p.id; mode="edit"; varValues={}; render(); };
+
+    var t=document.createElement("div"); t.className="t"; t.textContent=p.title||"(제목 없음)";
+    var snip=document.createElement("div"); snip.className="snip";
+    snip.textContent=(p.body||"").replace(/\s+/g," ").slice(0,120);
+    card.appendChild(t); card.appendChild(snip);
+
+    if((p.tags||[]).length){
+      var ct=document.createElement("div"); ct.className="ctags";
+      p.tags.forEach(function(tg){ var m=document.createElement("span"); m.className="mini"; m.textContent="#"+tg; ct.appendChild(m); });
+      card.appendChild(ct);
+    }
+
+    var cp=document.createElement("button"); cp.className="copy"; cp.textContent="복사";
+    cp.onclick=function(ev){
+      ev.stopPropagation();
+      copyText(p.body||"");
+      cp.textContent="완료"; cp.className="copy done";
+      setTimeout(function(){ cp.textContent="복사"; cp.className="copy"; },1100);
+    };
+    card.appendChild(cp);
+    list.appendChild(card);
+  });
+}
+function renderMain(){
+  var p=selected();
+  var head=$("mainhead");
+  var area=$("body-area");
+  if(!p){
+    head.style.display="none";
+    area.innerHTML='<div class="center-empty">왼쪽에서 프롬프트를 선택하거나<br>+ 새 프롬프트를 만드세요.</div>';
+    return;
+  }
+  head.style.display="flex";
+  setSaveStat("saved");
+  $("dtitle").textContent=p.title||"(제목 없음)";
+  var vs=extractVars(p.body||"");
+  var sub=[];
+  sub.push("수정 "+shortDate(p.updated));
+  if(vs.length) sub.push("변수 "+vs.length+"개");
+  $("dsub").textContent=sub.join("  ·  ");
+
+  var segBtns=$("seg").getElementsByTagName("button");
+  for(var i=0;i<segBtns.length;i++){
+    segBtns[i].className=(segBtns[i].getAttribute("data-mode")===mode)?"on":"";
+  }
+
+  if(mode==="edit") renderEditor(p, area);
+  else renderPreview(p, area);
+}
+function shortDate(iso){
+  if(!iso) return "-";
+  var d=new Date(iso);
+  var mm=("0"+(d.getMonth()+1)).slice(-2);
+  var dd=("0"+d.getDate()).slice(-2);
+  var hh=("0"+d.getHours()).slice(-2);
+  var mi=("0"+d.getMinutes()).slice(-2);
+  return d.getFullYear()+"."+mm+"."+dd+" "+hh+":"+mi;
+}
+
+function renderEditor(p, area){
+  area.innerHTML="";
+  var f1=fieldTitle(p);
+  var f2=fieldTags(p);
+  var f3=fieldBody(p);
+  area.appendChild(f1); area.appendChild(f2); area.appendChild(f3);
+}
+function fieldTitle(p){
+  var w=document.createElement("div"); w.className="field";
+  w.innerHTML='<label>제목</label>';
+  var inp=document.createElement("input"); inp.className="inp"; inp.type="text"; inp.value=p.title||"";
+  inp.placeholder="프롬프트 제목";
+  inp.oninput=function(){ p.title=inp.value; $("dtitle").textContent=p.title||"(제목 없음)"; scheduleSave(p); refreshListSoft(); };
+  w.appendChild(inp);
+  return w;
+}
+function fieldTags(p){
+  var w=document.createElement("div"); w.className="field";
+  w.innerHTML='<label>태그 (쉼표로 구분)</label>';
+  var inp=document.createElement("input"); inp.className="inp"; inp.type="text";
+  inp.value=(p.tags||[]).join(", ");
+  inp.placeholder="예: 코딩, 글쓰기, GPT";
+  inp.oninput=function(){
+    p.tags=inp.value.split(",").map(function(s){return s.trim();}).filter(function(s){return s;});
+    scheduleSave(p);
+  };
+  inp.onblur=function(){ render(); };
+  w.appendChild(inp);
+  return w;
+}
+function fieldBody(p){
+  var w=document.createElement("div"); w.className="field";
+  w.innerHTML='<label>본문 (마크다운 · 변수는 {{이름}})</label>';
+  var ta=document.createElement("textarea"); ta.className="ta";
+  ta.value=p.body||""; ta.placeholder="여기에 프롬프트를 입력하세요.\n\n예) {{주제}}에 대해 {{말투}}로 500자 이내로 써줘.";
+  ta.oninput=function(){ p.body=ta.value; scheduleSave(p); refreshListSoft(); updateSubVars(p); };
+  w.appendChild(ta);
+  var h=document.createElement("div"); h.className="hint";
+  h.textContent="{{변수}}를 넣으면 미리보기에서 값을 채워 최종 프롬프트로 복사할 수 있습니다.";
+  w.appendChild(h);
+  return w;
+}
+function updateSubVars(p){
+  var vs=extractVars(p.body||"");
+  var sub=["수정 "+shortDate(p.updated)];
+  if(vs.length) sub.push("변수 "+vs.length+"개");
+  $("dsub").textContent=sub.join("  ·  ");
+}
+
+function renderPreview(p, area){
+  area.innerHTML="";
+  var vars=extractVars(p.body||"");
+
+  if(vars.length){
+    var vb=document.createElement("div"); vb.className="varbox";
+    var vh=document.createElement("div"); vh.className="vh"; vh.textContent="변수 채우기";
+    vb.appendChild(vh);
+    vars.forEach(function(name){
+      var row=document.createElement("div"); row.className="varrow";
+      var k=document.createElement("div"); k.className="vk"; k.textContent=name;
+      var v=document.createElement("input"); v.className="vv"; v.type="text";
+      v.value=varValues[name]||""; v.placeholder=name+" 값";
+      v.oninput=function(){ varValues[name]=v.value; updateRendered(p); };
+      row.appendChild(k); row.appendChild(v);
+      vb.appendChild(row);
+    });
+    area.appendChild(vb);
+  }
+
+  var ph=document.createElement("div"); ph.className="prev-head";
+  var pl=document.createElement("div"); pl.className="pl";
+  pl.textContent=vars.length ? "값을 채우면 아래 미리보기와 복사에 반영됩니다." : "미리보기";
+  var cb=document.createElement("button"); cb.className="copybtn"; cb.id="mainCopy"; cb.textContent="복사";
+  cb.onclick=function(){
+    copyText(fillVars(p.body||"", varValues));
+    cb.textContent="복사됨"; cb.className="copybtn done";
+    setTimeout(function(){ cb.textContent="복사"; cb.className="copybtn"; },1200);
+  };
+  ph.appendChild(pl); ph.appendChild(cb);
+  area.appendChild(ph);
+
+  var rd=document.createElement("div"); rd.className="rendered"; rd.id="renderedOut";
+  area.appendChild(rd);
+  updateRendered(p);
+}
+function updateRendered(p){
+  var out=$("renderedOut");
+  if(!out) return;
+  var filled=fillVars(p.body||"", varValues);
+  out.innerHTML=highlightPlaceholders(mdToHtml(filled));
+}
+
+/* light list refresh without losing focus (update snippet/title text only) */
+function refreshListSoft(){
+  var cards=$("list").getElementsByClassName("pcard");
+  /* cheap: just re-render list; inputs are in main panel so focus not lost */
+  renderList();
+}
+
+/* ---------------- Save ---------------- */
+function setSaveStat(state){
+  var el=$("savestat");
+  if(!el) return;
+  if(state==="saving"){ el.textContent="저장 중…"; el.className="savestat saving"; }
+  else { el.textContent="저장됨 ✓"; el.className="savestat"; }
+}
+function scheduleSave(p){
+  p.updated=nowISO();
+  setSaveStat("saving");
+  if(saveTimer) clearTimeout(saveTimer);
+  saveTimer=setTimeout(function(){ dbPut(p); sortPrompts(); setSaveStat("saved"); },400);
+}
+
+/* ---------------- Clipboard ---------------- */
+function copyText(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ toast("복사했습니다"); },function(){ fallbackCopy(text); });
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text){
+  var ta=document.createElement("textarea");
+  ta.value=text; ta.style.position="fixed"; ta.style.top="-1000px";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand("copy"); toast("복사했습니다"); }catch(e){ toast("복사 실패"); }
+  document.body.removeChild(ta);
+}
+var toastTimer=null;
+function toast(msg){
+  var t=$("toast"); t.textContent=msg; t.className="toast on";
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){ t.className="toast"; },1400);
+}
+
+/* ---------------- Actions ---------------- */
+function newPrompt(){
+  var p={ id:uid(), title:"새 프롬프트", tags:[], body:"", created:nowISO(), updated:nowISO() };
+  prompts.unshift(p);
+  dbPut(p);
+  selectedId=p.id; mode="edit"; varValues={};
+  render();
+  var inp=$("body-area").getElementsByClassName("inp")[0];
+  if(inp){ inp.focus(); inp.select(); }
+}
+function delPrompt(){
+  var p=selected();
+  if(!p) return;
+  if(!window.confirm('"'+(p.title||"제목 없음")+'" 프롬프트를 삭제할까요?')) return;
+  dbDel(p.id);
+  prompts=prompts.filter(function(x){ return x.id!==p.id; });
+  selectedId=null;
+  render();
+}
+function exportJSON(){
+  var data=JSON.stringify({ app:"prompt-store", version:1, exported:nowISO(), prompts:prompts }, null, 2);
+  var blob=new Blob([data],{type:"application/json"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  var d=new Date();
+  var stamp=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+  a.href=url; a.download="프롬프트저장소_"+stamp+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); },1000);
+  toast("내보냈습니다");
+}
+function importJSON(file){
+  var reader=new FileReader();
+  reader.onload=function(){
+    var incoming;
+    try{ incoming=JSON.parse(reader.result); }catch(e){ toast("JSON 형식 오류"); return; }
+    var arr=(incoming && incoming.prompts) ? incoming.prompts : (Array.isArray(incoming)?incoming:null);
+    if(!arr){ toast("프롬프트 데이터를 찾을 수 없습니다"); return; }
+    var byId={};
+    for(var i=0;i<prompts.length;i++) byId[prompts[i].id]=prompts[i];
+    var added=0, updated=0;
+    arr.forEach(function(r){
+      if(!r || !r.body && !r.title) return;
+      if(!r.id) r.id=uid();
+      if(!r.tags) r.tags=[];
+      if(!r.created) r.created=nowISO();
+      if(!r.updated) r.updated=nowISO();
+      if(byId[r.id]) updated++; else added++;
+      byId[r.id]=r;
+      dbPut(r);
+    });
+    prompts=Object.keys(byId).map(function(k){ return byId[k]; });
+    sortPrompts();
+    render();
+    toast("불러오기 완료 · 추가 "+added+", 갱신 "+updated);
+  };
+  reader.readAsText(file);
+}
+
+/* ---------------- Events ---------------- */
+function bind(){
+  $("search").oninput=function(){ query=this.value; render(); };
+  $("newbtn").onclick=newPrompt;
+  $("delbtn").onclick=delPrompt;
+  $("exportbtn").onclick=exportJSON;
+  $("importbtn").onclick=function(){ $("importfile").click(); };
+  $("importfile").onchange=function(){ if(this.files&&this.files[0]){ importJSON(this.files[0]); this.value=""; } };
+  var segBtns=$("seg").getElementsByTagName("button");
+  for(var i=0;i<segBtns.length;i++){
+    (function(btn){
+      btn.onclick=function(){ mode=btn.getAttribute("data-mode"); renderMain(); };
+    })(segBtns[i]);
+  }
+}
+
+/* ---------------- Seed (first run only) ---------------- */
+function maybeSeed(cb){
+  if(prompts.length>0){ cb(); return; }
+  var samples=[
+    { id:uid(), title:"블로그 글 초안", tags:["글쓰기"],
+      body:"# 역할\n너는 전문 블로그 작가야.\n\n{{주제}}에 대해 **{{말투}}** 말투로 800자 내외의 글을 써줘.\n\n- 독자: {{대상독자}}\n- 형식: 서론·본론·결론\n- 마지막에 한 줄 요약",
+      created:nowISO(), updated:nowISO() },
+    { id:uid(), title:"코드 리뷰 요청", tags:["코딩"],
+      body:"아래 코드를 리뷰해줘.\n\n검토 항목:\n1. 버그·엣지케이스\n2. 가독성\n3. 성능\n\n```\n{{코드}}\n```\n\n각 항목을 짧게 지적하고 개선 코드도 보여줘.",
+      created:nowISO(), updated:nowISO() },
+    { id:uid(), title:"영어 이메일 번역", tags:["번역","업무"],
+      body:"다음 한국어를 정중한 비즈니스 영어 이메일로 바꿔줘.\n\n원문:\n{{원문}}\n\n톤: {{톤}}",
+      created:nowISO(), updated:nowISO() }
+  ];
+  samples.forEach(function(s){ prompts.push(s); dbPut(s); });
+  cb();
+}
+
+/* ---------------- Boot ---------------- */
+openDB(function(){
+  dbAll(function(rows){
+    prompts=rows||[];
+    sortPrompts();
+    maybeSeed(function(){
+      sortPrompts();
+      bind();
+      render();
+    });
+  });
+});
+
+})();
+</script>
+</body>
+</html>
