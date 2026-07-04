@@ -23,6 +23,12 @@
 - **현재(1단계)**: IndexedDB(기기별 로컬) + JSON 내보내기/불러오기. 기기 간 공유는 JSON 파일을 구글 드라이브 경유로 주고받음(수동).
 - **다음(2단계, 미구현)**: Google Drive API + OAuth로 태블릿까지 자동 동기화. Google Cloud 콘솔에서 OAuth 클라이언트 ID 발급이 선행 필요(우동동이 직접) → 이후 `drive.file` 스코프(비민감)로 단일 JSON 파일만 읽고/쓰는 방식으로 붙인다. 고정 오리진 필요 → GitHub Pages 배포와 함께 진행.
 
+## 배포 (별도 repo · GitHub Pages)
+
+- **공개 repo**: `udondong/prompt-store` (이 폴더가 자체 nested git repo). 루트 munseo-workspace repo는 `.gitignore`로 이 폴더를 제외하고, `나라가족 동기화/클로드동기화/extra-repos.txt`에 등록되어 `sync-work.sh`가 함께 동기화(지니어스 게임과 동일 패턴).
+- **라이브 주소**: https://udondong.github.io/prompt-store/ (main 브랜치 루트 서빙, Pages).
+- **수정 반영 절차**: 이 폴더에서 `index.html` 수정 → 이 폴더의 git repo에 커밋 → `git push`(origin main) → 1~2분 뒤 Pages 반영. 데이터(프롬프트)는 repo에 올라가지 않음(브라우저 IndexedDB·향후 Drive에만).
+
 ## 실행·검증
 
 - 로컬 실행: 프로젝트 폴더에서
@@ -35,8 +41,8 @@
 ## 현재 진행 상태
 
 - ① 마지막 작업: 2026-07-05
-- ② 완료: 프로젝트 폴더·CLAUDE.md 생성. `index.html` 초기 구현(목록/검색/태그, 편집, `{{변수}}` 템플릿, 마크다운 미리보기, 복사, IndexedDB 저장, JSON 내보내기/불러오기, 라이트·다크). 구형 WebKit 안전 문법.
-- ③ 남은 것: (a) Google Drive API 자동 동기화(OAuth 발급 후) (b) GitHub Pages 배포 (c) 앱 아이콘 시트(정체성 색·중앙 심볼) 정식 제작 (d) 실기기(갤럭시탭·아이패드) 확인.
-- ④ 검증한 것: (작성 시점 로컬 렌더/동작 — 아래 명령으로 재확인)
-- ⑤ 검증 못 한 것: 실제 갤럭시탭·아이패드 Safari 동작, 대량 프롬프트 성능.
-- ⑥ 다음 작업자 실행: 위 "실행·검증"의 http.server 명령 → Claude_Preview로 확인. Drive 동기화는 OAuth 클라이언트 ID 준비 여부부터 확인.
+- ② 완료: `index.html` 구현(목록/검색/태그, 편집, `{{변수}}` 템플릿, 마크다운 미리보기, 한번에 복사, IndexedDB 자동저장+헤더 저장상태 표시, "+새 프롬프트" 상단 버튼, JSON 내보내기/불러오기, 라이트·다크, 구형 WebKit 안전문법). **GitHub Pages 배포 완료** → https://udondong.github.io/prompt-store/ (별도 repo `udondong/prompt-store`, extra-repos.txt 등록).
+- ③ 남은 것: (a) **Google Drive 자동 동기화** — 사용자 OAuth 클라이언트 ID 발급 대기 중(승인 JS 출처 = `https://udondong.github.io`). 발급되면 `drive.file` 스코프 GIS 토큰 클라이언트 + Drive REST로 JSON 1개 파일 저장/불러오기 코드 추가. (b) 앱 아이콘 시트 정식 제작. (c) 실기기(갤럭시탭·아이패드) 확인. (d) 예시 프롬프트 3개 유지 여부(사용자 확인).
+- ④ 검증한 것: 로컬 Claude_Preview로 목록/검색/태그/선택/편집/`{{변수}}` 치환/마크다운 렌더/저장상태/IndexedDB 영속/라이트·다크 동작 확인. 라이브 URL HTTP 200·앱 서빙 확인.
+- ⑤ 검증 못 한 것: 실제 갤럭시탭·아이패드 Safari 동작, 클립보드 복사 실기기 동작, 대량 프롬프트 성능, Drive 동기화(미구현).
+- ⑥ 다음 작업자 실행: Drive 동기화는 사용자가 Google Cloud OAuth 클라이언트 ID를 준비했는지부터 확인 → 준비됐으면 GIS+Drive REST 코드 추가. 로컬 재확인은 "실행·검증"의 http.server 명령.
