@@ -44,7 +44,8 @@
 - ① 마지막 작업: 2026-07-05
 - ② 완료: `index.html` 구현(목록/검색/태그, 편집, `{{변수}}` 템플릿, 마크다운 미리보기, 한번에 복사, IndexedDB 자동저장+헤더 저장상태 표시, "+새 프롬프트" 상단 버튼, JSON 내보내기/불러오기, 라이트·다크, 구형 WebKit 안전문법). **GitHub Pages 배포 완료** → https://udondong.github.io/prompt-store/ (별도 repo `udondong/prompt-store`, extra-repos.txt 등록).
 - ② 추가: 예시(시드) 제거 — 빈 상태 시작. "붙여넣기로 가져오기 · AI 정리" 기능 추가(요청문 생성·복사 → AI 답변 JSON 붙여넣기 → 파싱·저장, API 미사용). 로컬 검증 완료(코드펜스+잡텍스트 섞인 JSON에서 2개 프롬프트 파싱·저장·선택 확인).
-- ③ 남은 것: (a) **Google Drive 자동 동기화** — 사용자 OAuth 클라이언트 ID 발급 대기 중(승인 JS 출처 = `https://udondong.github.io`). 발급되면 `drive.file` 스코프 GIS 토큰 클라이언트 + Drive REST로 JSON 1개 파일 저장/불러오기 코드 추가. (b) 앱 아이콘 시트 정식 제작(디자인 작업지시서는 세션에서 산출). (c) 실기기(갤럭시탭·아이패드) 확인. (d) 필요 시 "AI 정리" 요청문 문구 튜닝.
+- ② 추가: UI 디자인 산출물 HTML을 `design/프롬프트저장소_UI_산출_20260705.html`에 저장(작업지시서로 뽑은 결과물, 정본 아님·산출물 기록용, AdGuard 주입 스크립트 제거). 앱 아이콘 심볼 확정 = 말풍선 안 굵은 중괄호 `{ }`, 정체성 색 #2E8DEE(현재 favicon과 일치).
+- ③ 남은 것: (a) **Google Drive 자동 동기화** — 사용자 OAuth 클라이언트 ID 발급 대기 중(승인 JS 출처 = `https://udondong.github.io`). 발급되면 `drive.file` 스코프 GIS 토큰 클라이언트 + Drive REST로 JSON 1개 파일 저장/불러오기 코드 추가. (b) 앱 아이콘 실제 에셋 반영(favicon 외 — 필요 시 macOS/iOS/Android). (c) 실기기(갤럭시탭·아이패드) 확인. (d) 디자인 산출물의 아이디어(메인 상단 카드·편집/미리보기 2분할 등)를 실제 앱에 반영할지 사용자 결정. (e) 필요 시 "AI 정리" 요청문 문구 튜닝.
 - ④ 검증한 것: 로컬 Claude_Preview로 목록/검색/태그/선택/편집/`{{변수}}` 치환/마크다운 렌더/저장상태/IndexedDB 영속/라이트·다크 동작 확인. 라이브 URL HTTP 200·앱 서빙 확인.
 - ⑤ 검증 못 한 것: 실제 갤럭시탭·아이패드 Safari 동작, 클립보드 복사 실기기 동작, 대량 프롬프트 성능, Drive 동기화(미구현).
 - ⑥ 다음 작업자 실행: Drive 동기화는 사용자가 Google Cloud OAuth 클라이언트 ID를 준비했는지부터 확인 → 준비됐으면 GIS+Drive REST 코드 추가. 로컬 재확인은 "실행·검증"의 http.server 명령.
