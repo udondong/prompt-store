@@ -115,6 +115,11 @@ input,textarea{font-family:inherit; color:inherit;}
 .mbtn.done{background:var(--success);}
 .mbtn.ghost{background:var(--card2); color:var(--accent); border:0.8px solid var(--border); box-shadow:none;}
 .side-foot{padding:10px 14px 14px 14px; border-top:0.8px solid var(--border);}
+.folder-sync{margin:0 0 10px 0;}
+.folder-sync button{display:block; width:100%; height:38px; margin:0; border-radius:11px; font-size:13px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
+.folderstat{display:block; font-size:11px; color:var(--sub); margin:6px 2px 0 2px; line-height:1.4;}
+.folderstat.on{color:var(--success);}
+.folderstat.err{color:var(--danger);}
 .side-foot button{
   display:inline-block; height:34px; padding:0 12px; border-radius:10px; font-size:12.5px; font-weight:600;
   background:var(--card2); border:0.8px solid var(--border); margin:0 6px 0 0;
@@ -218,6 +223,10 @@ input,textarea{font-family:inherit; color:inherit;}
     </div>
     <div id="list"></div>
     <div class="side-foot">
+      <div class="folder-sync">
+        <button id="folderBtn">드라이브 폴더 연결</button>
+        <span class="folderstat" id="folderStat">연결 안 됨 · 크롬/엣지 데스크탑</span>
+      </div>
       <button id="exportbtn">내보내기</button>
       <button id="importbtn">불러오기</button>
       <input type="file" id="importfile" accept="application/json,.json" style="display:none">
@@ -272,15 +281,31 @@ input,textarea{font-family:inherit; color:inherit;}
 /* ---------------- IndexedDB ---------------- */
 var DB=null;
 function openDB(cb){
-  var req=indexedDB.open("prompt_store",1);
+  var req=indexedDB.open("prompt_store",2);
   req.onupgradeneeded=function(e){
     var db=e.target.result;
     if(!db.objectStoreNames.contains("prompts")){
       db.createObjectStore("prompts",{keyPath:"id"});
     }
+    if(!db.objectStoreNames.contains("meta")){
+      db.createObjectStore("meta",{keyPath:"key"});
+    }
   };
   req.onsuccess=function(e){ DB=e.target.result; cb(); };
   req.onerror=function(){ cb(); };
+}
+function metaPut(key,value){
+  if(!DB) return;
+  try{ var tx=DB.transaction("meta","readwrite"); tx.objectStore("meta").put({key:key,value:value}); }catch(e){}
+}
+function metaGet(key,cb){
+  if(!DB){ cb(null); return; }
+  try{
+    var tx=DB.transaction("meta","readonly");
+    var r=tx.objectStore("meta").get(key);
+    r.onsuccess=function(){ cb(r.result?r.result.value:null); };
+    r.onerror=function(){ cb(null); };
+  }catch(e){ cb(null); }
 }
 function dbAll(cb){
   if(!DB){ cb([]); return; }
@@ -309,6 +334,9 @@ var activeTag=null;
 var mode="edit";
 var varValues={};
 var saveTimer=null;
+var deletedMap={};
+var folderHandle=null, pendingHandle=null, folderConnected=false;
+var folderSyncTimer=null, folderPollTimer=null, lastFolderMtime=0;
 
 var $=function(id){ return document.getElementById(id); };
 
@@ -632,7 +660,7 @@ function scheduleSave(p){
   p.updated=nowISO();
   setSaveStat("saving");
   if(saveTimer) clearTimeout(saveTimer);
-  saveTimer=setTimeout(function(){ dbPut(p); sortPrompts(); setSaveStat("saved"); },400);
+  saveTimer=setTimeout(function(){ dbPut(p); sortPrompts(); setSaveStat("saved"); pushFolder(); },400);
 }
 
 /* ---------------- Clipboard ---------------- */
@@ -660,6 +688,7 @@ function newPrompt(){
   var p={ id:uid(), title:"새 프롬프트", tags:[], body:"", created:nowISO(), updated:nowISO() };
   prompts.unshift(p);
   dbPut(p);
+  pushFolder();
   selectedId=p.id; mode="edit"; varValues={};
   render();
   var inp=$("body-area").getElementsByClassName("inp")[0];
@@ -670,9 +699,12 @@ function delPrompt(){
   if(!p) return;
   if(!window.confirm('"'+(p.title||"제목 없음")+'" 프롬프트를 삭제할까요?')) return;
   dbDel(p.id);
+  deletedMap[p.id]=nowISO();
+  metaPut("deleted", deletedMap);
   prompts=prompts.filter(function(x){ return x.id!==p.id; });
   selectedId=null;
   render();
+  pushFolder();
 }
 function exportJSON(){
   var data=JSON.stringify({ app:"prompt-store", version:1, exported:nowISO(), prompts:prompts }, null, 2);
@@ -774,10 +806,142 @@ function importFromReply(){
   selectedId=clean[0].id; mode="edit"; varValues={};
   closeAiModal();
   render();
+  pushFolder();
   toast(clean.length+"개 가져왔습니다");
 }
 function openAiModal(){ $("aiRaw").value=""; $("aiReply").value=""; var c=$("aiCopyReq"); c.textContent="요청문 복사하기"; c.className="mbtn"; $("aiModal").className="modal-overlay on"; }
 function closeAiModal(){ $("aiModal").className="modal-overlay"; }
+
+/* ---------------- 폴더 동기화 (File System Access · OAuth 불필요) ---------------- */
+/* merge remote {prompts,deleted} into local prompts[] + deletedMap. tombstone 병합. */
+function mergeData(remote){
+  if(!remote) return false;
+  var changed=false, byId={}, i, k, id;
+  for(i=0;i<prompts.length;i++) byId[prompts[i].id]=prompts[i];
+  var rdel=remote.deleted||{};
+  for(k in rdel){ if(rdel.hasOwnProperty(k)){
+    if(!deletedMap[k] || rdel[k]>deletedMap[k]){ deletedMap[k]=rdel[k]; changed=true; }
+  }}
+  var rp=remote.prompts||[];
+  for(i=0;i<rp.length;i++){
+    var r=rp[i]; if(!r||!r.id) continue;
+    var cur=byId[r.id];
+    if(!cur){ byId[r.id]=r; changed=true; }
+    else if((r.updated||"")>(cur.updated||"")){ byId[r.id]=r; changed=true; }
+  }
+  var out=[];
+  for(id in byId){ if(byId.hasOwnProperty(id)){
+    var p=byId[id], del=deletedMap[id];
+    if(del && del>=(p.updated||"")){ if(prompts.indexOf(p)>=0) changed=true; continue; }
+    out.push(p);
+  }}
+  prompts=out; sortPrompts();
+  return changed;
+}
+function persistMerged(){
+  for(var i=0;i<prompts.length;i++) dbPut(prompts[i]);
+  for(var id in deletedMap){ if(deletedMap.hasOwnProperty(id)) dbDel(id); }
+  metaPut("deleted", deletedMap);
+}
+function setFolderStat(state){
+  var el=$("folderStat"), btn=$("folderBtn");
+  if(!el) return;
+  if(state==="saved"){ el.textContent="폴더 동기화 켜짐 ✓"; el.className="folderstat on"; if(btn) btn.textContent="지금 동기화"; }
+  else if(state==="saving"){ el.textContent="폴더에 저장 중…"; el.className="folderstat"; }
+  else if(state==="reconnect"){ el.textContent="폴더 다시 연결이 필요합니다"; el.className="folderstat"; if(btn) btn.textContent="폴더 다시 연결"; }
+  else if(state==="unsupported"){ el.textContent="이 브라우저 미지원 · 크롬/엣지 데스크탑에서 사용"; el.className="folderstat"; }
+  else if(state==="error"){ el.textContent="폴더 쓰기 오류 — 다시 연결하세요"; el.className="folderstat err"; }
+  else { el.textContent="연결 안 됨 · 크롬/엣지 데스크탑"; el.className="folderstat"; if(btn) btn.textContent="드라이브 폴더 연결"; }
+}
+function readFolderFile(){
+  return folderHandle.getFileHandle("prompts.json",{create:false}).then(function(fh){
+    return fh.getFile();
+  }).then(function(file){
+    lastFolderMtime=file.lastModified;
+    return file.text();
+  }).then(function(text){
+    if(!text) return null;
+    try{ return JSON.parse(text); }catch(e){ return null; }
+  }).catch(function(){ return null; });
+}
+function writeFolderFile(){
+  if(!folderHandle) return Promise.resolve();
+  return folderHandle.getFileHandle("prompts.json",{create:true}).then(function(fh){
+    return fh.createWritable().then(function(w){
+      var payload={ app:"prompt-store", version:1, updated:nowISO(), prompts:prompts, deleted:deletedMap };
+      return w.write(JSON.stringify(payload,null,2)).then(function(){ return w.close(); });
+    }).then(function(){ return fh.getFile(); }).then(function(file){ lastFolderMtime=file.lastModified; });
+  }).then(function(){ setFolderStat("saved"); }, function(){ setFolderStat("error"); });
+}
+function pushFolder(){
+  if(!folderConnected) return;
+  setFolderStat("saving");
+  if(folderSyncTimer) clearTimeout(folderSyncTimer);
+  folderSyncTimer=setTimeout(function(){ writeFolderFile(); }, 600);
+}
+function afterConnect(){
+  return readFolderFile().then(function(data){
+    if(data){ if(mergeData(data)) persistMerged(); }
+    return writeFolderFile();
+  }).then(function(){ render(); startFolderPoll(); setFolderStat("saved"); toast("폴더 동기화 켜짐"); });
+}
+function connectFolder(){
+  window.showDirectoryPicker({mode:"readwrite", id:"promptstore"}).then(function(handle){
+    folderHandle=handle; folderConnected=true; metaPut("dirHandle", handle);
+    afterConnect();
+  }).catch(function(){ /* 사용자 취소 */ });
+}
+function syncFolderNow(){
+  readFolderFile().then(function(data){
+    if(data){ if(mergeData(data)){ persistMerged(); render(); } }
+    return writeFolderFile();
+  }).then(function(){ setFolderStat("saved"); toast("동기화했습니다"); });
+}
+function onFolderBtn(){
+  if(!window.showDirectoryPicker){ toast("크롬·엣지 데스크탑에서만 폴더 연결이 됩니다"); return; }
+  if(folderConnected){ syncFolderNow(); return; }
+  if(pendingHandle){
+    pendingHandle.requestPermission({mode:"readwrite"}).then(function(p){
+      if(p==="granted"){ folderHandle=pendingHandle; pendingHandle=null; folderConnected=true; afterConnect(); }
+      else connectFolder();
+    }).catch(function(){ connectFolder(); });
+    return;
+  }
+  connectFolder();
+}
+function checkFolderChanged(){
+  if(!folderConnected||!folderHandle) return;
+  folderHandle.getFileHandle("prompts.json",{create:false}).then(function(fh){ return fh.getFile(); }).then(function(file){
+    if(file.lastModified>lastFolderMtime){
+      return file.text().then(function(text){
+        if(!text) return;
+        var data; try{ data=JSON.parse(text); }catch(e){ return; }
+        lastFolderMtime=file.lastModified;
+        if(mergeData(data)){ persistMerged(); render(); setFolderStat("saved"); }
+      });
+    }
+  }).catch(function(){});
+}
+function startFolderPoll(){
+  if(folderPollTimer) clearInterval(folderPollTimer);
+  folderPollTimer=setInterval(checkFolderChanged, 15000);
+  window.addEventListener("focus", checkFolderChanged);
+}
+function tryReconnectFolder(){
+  if(!window.showDirectoryPicker){ setFolderStat("unsupported"); return; }
+  metaGet("dirHandle", function(handle){
+    if(!handle || !handle.queryPermission){ setFolderStat("off"); return; }
+    handle.queryPermission({mode:"readwrite"}).then(function(perm){
+      if(perm==="granted"){
+        folderHandle=handle; folderConnected=true;
+        readFolderFile().then(function(data){
+          if(data){ if(mergeData(data)){ persistMerged(); render(); } }
+          startFolderPoll(); setFolderStat("saved");
+        });
+      } else { pendingHandle=handle; setFolderStat("reconnect"); }
+    }).catch(function(){ setFolderStat("off"); });
+  });
+}
 
 /* ---------------- Events ---------------- */
 function bind(){
@@ -794,6 +958,7 @@ function bind(){
     setTimeout(function(){ b.textContent="요청문 복사하기"; b.className="mbtn"; },1800);
   };
   $("aiImport").onclick=importFromReply;
+  $("folderBtn").onclick=onFolderBtn;
   $("delbtn").onclick=delPrompt;
   $("exportbtn").onclick=exportJSON;
   $("importbtn").onclick=function(){ $("importfile").click(); };
@@ -811,8 +976,12 @@ openDB(function(){
   dbAll(function(rows){
     prompts=rows||[];
     sortPrompts();
-    bind();
-    render();
+    metaGet("deleted", function(d){
+      deletedMap = d || {};
+      bind();
+      render();
+      tryReconnectFolder();
+    });
   });
 });
 

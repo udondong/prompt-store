@@ -21,8 +21,12 @@
 
 ## 저장·동기화 설계
 
-- **현재(1단계)**: IndexedDB(기기별 로컬) + JSON 내보내기/불러오기. 기기 간 공유는 JSON 파일을 구글 드라이브 경유로 주고받음(수동).
-- **다음(2단계, 미구현)**: Google Drive API + OAuth로 태블릿까지 자동 동기화. Google Cloud 콘솔에서 OAuth 클라이언트 ID 발급이 선행 필요(우동동이 직접) → 이후 `drive.file` 스코프(비민감)로 단일 JSON 파일만 읽고/쓰는 방식으로 붙인다. 고정 오리진 필요 → GitHub Pages 배포와 함께 진행.
+- **로컬(항상)**: IndexedDB. 오프라인 작동, 모든 기기.
+- **채택한 동기화 방식 = 드라이브 폴더 저장(OAuth 없음)**: 사이드바 "드라이브 폴더 연결"(File System Access API) → 동기화폴더 안 폴더를 지정하면 앱이 그 폴더에 `prompts.json`을 직접 읽고/쓴다. 구글 드라이브 데몬이 맥↔윈도우 자동 동기화. **크롬·엣지 데스크탑 전용**(사파리·태블릿 미지원 → 그 기기는 로컬+수동 JSON). 사용자 선택(2026-07-05): 태블릿 자동 동기화보다 OAuth 없는 단순함을 우선.
+  - 병합: `prompts.json`은 `{prompts, deleted}`. 병합은 id별 `updated` 최신 우선 + **tombstone**(`deleted` 맵의 삭제시각이 항목 `updated`보다 크거나 같으면 제거). 삭제도 기기 간 전파. 편집이 삭제보다 나중이면 부활.
+  - 반영 시점: 편집/생성/삭제/가져오기 시 debounce push. 창 focus + 15초 폴링으로 상대 기기 변경 pull.
+  - 재연결: 디렉터리 핸들을 IndexedDB(meta)에 저장 → 재방문 시 권한 granted면 자동, 아니면 "폴더 다시 연결" 클릭 1회.
+- **대안(미채택, 필요 시)**: Google Drive API + OAuth(`drive.file`) — 태블릿까지 자동 동기화가 필요해지면 그때. 승인 JS 출처 = `https://udondong.github.io`.
 
 ## 배포 (별도 repo · GitHub Pages)
 
@@ -45,7 +49,8 @@
 - ② 완료: `index.html` 구현(목록/검색/태그, 편집, `{{변수}}` 템플릿, 마크다운 미리보기, 한번에 복사, IndexedDB 자동저장+헤더 저장상태 표시, "+새 프롬프트" 상단 버튼, JSON 내보내기/불러오기, 라이트·다크, 구형 WebKit 안전문법). **GitHub Pages 배포 완료** → https://udondong.github.io/prompt-store/ (별도 repo `udondong/prompt-store`, extra-repos.txt 등록).
 - ② 추가: 예시(시드) 제거 — 빈 상태 시작. "붙여넣기로 가져오기 · AI 정리" 기능 추가(요청문 생성·복사 → AI 답변 JSON 붙여넣기 → 파싱·저장, API 미사용). 로컬 검증 완료(코드펜스+잡텍스트 섞인 JSON에서 2개 프롬프트 파싱·저장·선택 확인).
 - ② 추가: UI 디자인 산출물 HTML을 `design/프롬프트저장소_UI_산출_20260705.html`에 저장(작업지시서로 뽑은 결과물, 정본 아님·산출물 기록용, AdGuard 주입 스크립트 제거). 앱 아이콘 심볼 확정 = 말풍선 안 굵은 중괄호 `{ }`, 정체성 색 #2E8DEE(현재 favicon과 일치).
-- ③ 남은 것: (a) **Google Drive 자동 동기화** — 사용자 OAuth 클라이언트 ID 발급 대기 중(승인 JS 출처 = `https://udondong.github.io`). 발급되면 `drive.file` 스코프 GIS 토큰 클라이언트 + Drive REST로 JSON 1개 파일 저장/불러오기 코드 추가. (b) 앱 아이콘 실제 에셋 반영(favicon 외 — 필요 시 macOS/iOS/Android). (c) 실기기(갤럭시탭·아이패드) 확인. (d) 디자인 산출물의 아이디어(메인 상단 카드·편집/미리보기 2분할 등)를 실제 앱에 반영할지 사용자 결정. (e) 필요 시 "AI 정리" 요청문 문구 튜닝.
+- ② 추가: **드라이브 폴더 저장 동기화** 구현(File System Access API, OAuth 없음). "드라이브 폴더 연결" 버튼 + tombstone 병합 + focus/15초 폴링 + 핸들 재연결. 로컬 검증: 병합 로직 4개 시나리오(최신우선·삭제전파·부활·tombstone제거) 통과, 콘솔 에러 0, 미지원/미연결 graceful. **미검증: 실제 폴더 선택·크로스기기 동기화**(크롬 picker는 헤드리스 검증 불가 → 우동님 크롬에서 실제 확인 필요).
+- ③ 남은 것: (a) **실기기 확인** — 우동님 크롬/엣지에서 폴더 연결→저장→다른 기기에서 동기화 실제 동작 확인. (b) 태블릿 동기화 필요 시 Drive API(OAuth) 추가. (c) 앱 아이콘 실제 에셋 반영. (d) 디자인 산출물 아이디어(메인 상단 카드·편집/미리보기 2분할 등) 실제 앱 반영 여부. (e) 필요 시 "AI 정리" 요청문 튜닝.
 - ④ 검증한 것: 로컬 Claude_Preview로 목록/검색/태그/선택/편집/`{{변수}}` 치환/마크다운 렌더/저장상태/IndexedDB 영속/라이트·다크 동작 확인. 라이브 URL HTTP 200·앱 서빙 확인.
 - ⑤ 검증 못 한 것: 실제 갤럭시탭·아이패드 Safari 동작, 클립보드 복사 실기기 동작, 대량 프롬프트 성능, Drive 동기화(미구현).
 - ⑥ 다음 작업자 실행: Drive 동기화는 사용자가 Google Cloud OAuth 클라이언트 ID를 준비했는지부터 확인 → 준비됐으면 GIS+Drive REST 코드 추가. 로컬 재확인은 "실행·검증"의 http.server 명령.
