@@ -683,34 +683,13 @@ function bind(){
   }
 }
 
-/* ---------------- Seed (first run only) ---------------- */
-function maybeSeed(cb){
-  if(prompts.length>0){ cb(); return; }
-  var samples=[
-    { id:uid(), title:"블로그 글 초안", tags:["글쓰기"],
-      body:"# 역할\n너는 전문 블로그 작가야.\n\n{{주제}}에 대해 **{{말투}}** 말투로 800자 내외의 글을 써줘.\n\n- 독자: {{대상독자}}\n- 형식: 서론·본론·결론\n- 마지막에 한 줄 요약",
-      created:nowISO(), updated:nowISO() },
-    { id:uid(), title:"코드 리뷰 요청", tags:["코딩"],
-      body:"아래 코드를 리뷰해줘.\n\n검토 항목:\n1. 버그·엣지케이스\n2. 가독성\n3. 성능\n\n```\n{{코드}}\n```\n\n각 항목을 짧게 지적하고 개선 코드도 보여줘.",
-      created:nowISO(), updated:nowISO() },
-    { id:uid(), title:"영어 이메일 번역", tags:["번역","업무"],
-      body:"다음 한국어를 정중한 비즈니스 영어 이메일로 바꿔줘.\n\n원문:\n{{원문}}\n\n톤: {{톤}}",
-      created:nowISO(), updated:nowISO() }
-  ];
-  samples.forEach(function(s){ prompts.push(s); dbPut(s); });
-  cb();
-}
-
 /* ---------------- Boot ---------------- */
 openDB(function(){
   dbAll(function(rows){
     prompts=rows||[];
     sortPrompts();
-    maybeSeed(function(){
-      sortPrompts();
-      bind();
-      render();
-    });
+    bind();
+    render();
   });
 });
 
