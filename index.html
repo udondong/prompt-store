@@ -237,7 +237,6 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
     <div class="new-wrap">
       <button class="newbig" id="newbtn">+ 새 프롬프트 만들기</button>
       <button class="newsub" id="aibtn">붙여넣기로 가져오기 · AI 정리</button>
-      <button class="newsub" id="setsbtn">옵션 세트 · 선택지 목록</button>
     </div>
     <div id="list"></div>
     <div class="side-foot">
@@ -288,17 +287,6 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
       <textarea id="aiReply" placeholder="AI가 준 답변을 붙여넣으세요."></textarea>
       <button class="mbtn ghost" id="aiImport">가져와서 저장</button>
     </div>
-  </div>
-</div>
-<div class="modal-overlay" id="setsModal">
-  <div class="modal">
-    <div class="mhead">
-      <h3>옵션 세트 · 선택지 목록</h3>
-      <button class="mclose" id="setsClose">×</button>
-    </div>
-    <p class="mdesc">본문 변수와 <b>같은 이름</b>의 세트를 만들면, 미리보기에서 그 변수가 드롭다운(골라 쓰기)이 됩니다. 예: "의상" 세트 → 본문의 <code>{{의상}}</code>이 목록 선택으로. 세트는 모든 프롬프트가 공유합니다.</p>
-    <div id="setsList"></div>
-    <button class="mbtn ghost" id="setsAdd">+ 새 옵션 세트</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -364,8 +352,7 @@ var mode="edit";
 var varValues={};
 var saveTimer=null;
 var deletedMap={};
-var optionSets={}, optionSetsDeleted={}, customVars={};
-var setsCommitTimer=null;
+var customVars={}, varEditorOpen={};
 var folderHandle=null, pendingHandle=null, folderConnected=false;
 var folderSyncTimer=null, folderPollTimer=null, lastFolderMtime=0;
 
@@ -642,11 +629,11 @@ function renderPreview(p, area){
       var row=document.createElement("div"); row.className="varrow";
       var k=document.createElement("div"); k.className="vk"; k.textContent=name;
       row.appendChild(k);
-      var set=optionSets[name];
-      if(set && set.options && set.options.length && !customVars[name]){
+      var opts=(p.options && p.options[name]) ? p.options[name] : null;
+      if(opts && opts.length && !customVars[name]){
         var sel=document.createElement("select"); sel.className="vv vsel";
-        var o0=document.createElement("option"); o0.value=""; o0.textContent="(선택 "+set.options.length+"개)"; sel.appendChild(o0);
-        set.options.forEach(function(opt){
+        var o0=document.createElement("option"); o0.value=""; o0.textContent="(선택 "+opts.length+"개)"; sel.appendChild(o0);
+        opts.forEach(function(opt){
           var o=document.createElement("option"); o.value=opt;
           o.textContent=opt.length>70?opt.slice(0,70)+"…":opt;
           if(varValues[name]===opt) o.selected=true;
@@ -663,7 +650,7 @@ function renderPreview(p, area){
         v.value=varValues[name]||""; v.placeholder=name+" 값";
         v.oninput=function(){ varValues[name]=v.value; updateRendered(p); };
         row.appendChild(v);
-        if(set && set.options && set.options.length && customVars[name]){
+        if(opts && opts.length && customVars[name]){
           var back=document.createElement("button"); back.className="vback"; back.textContent="목록";
           back.onclick=function(){ delete customVars[name]; renderPreview(p, area); };
           row.appendChild(back);
@@ -762,7 +749,7 @@ function delPrompt(){
   pushFolder();
 }
 function exportJSON(){
-  var data=JSON.stringify({ app:"prompt-store", version:1, exported:nowISO(), prompts:prompts, optionSets:optionSets, optionSetsDeleted:optionSetsDeleted }, null, 2);
+  var data=JSON.stringify({ app:"prompt-store", version:1, exported:nowISO(), prompts:prompts }, null, 2);
   var blob=new Blob([data],{type:"application/json"});
   var url=URL.createObjectURL(blob);
   var a=document.createElement("a");
@@ -783,10 +770,17 @@ function importJSON(file){
     var byId={};
     for(var i=0;i<prompts.length;i++) byId[prompts[i].id]=prompts[i];
     var added=0, updated=0;
+    var oldSets=(incoming && incoming.optionSets) ? incoming.optionSets : null;
     arr.forEach(function(r){
       if(!r || !r.body && !r.title) return;
       if(!r.id) r.id=uid();
       if(!r.tags) r.tags=[];
+      if(!r.options) r.options={};
+      if(oldSets){
+        extractVars(r.body||"").forEach(function(nm){
+          if(oldSets[nm] && oldSets[nm].options && !r.options[nm]) r.options[nm]=oldSets[nm].options;
+        });
+      }
       if(!r.created) r.created=nowISO();
       if(!r.updated) r.updated=nowISO();
       if(byId[r.id]) updated++; else added++;
@@ -794,19 +788,10 @@ function importJSON(file){
       dbPut(r);
     });
     prompts=Object.keys(byId).map(function(k){ return byId[k]; });
-    // 옵션 세트도 병합(있으면)
-    var setsAdded=0;
-    if(incoming && incoming.optionSets){
-      for(var sk in incoming.optionSets){ if(incoming.optionSets.hasOwnProperty(sk)){
-        var rs=incoming.optionSets[sk], cs=optionSets[sk];
-        if(!cs || (rs.updated||"")>(cs.updated||"")){ optionSets[sk]=rs; setsAdded++; }
-      }}
-      metaPut("optionSets", optionSets);
-    }
     sortPrompts();
     render();
     pushFolder();
-    toast("불러오기 완료 · 프롬프트 추가 "+added+", 갱신 "+updated+(setsAdded?" · 세트 "+setsAdded:""));
+    toast("불러오기 완료 · 프롬프트 추가 "+added+", 갱신 "+updated);
   };
   reader.readAsText(file);
 }
@@ -901,21 +886,12 @@ function mergeData(remote){
     out.push(p);
   }}
   prompts=out; sortPrompts();
-  // 옵션 세트 병합 (이름별 updated 최신 우선 + tombstone)
-  var ros=remote.optionSets||{}, rosd=remote.optionSetsDeleted||{};
-  for(k in rosd){ if(rosd.hasOwnProperty(k)){ if(!optionSetsDeleted[k]||rosd[k]>optionSetsDeleted[k]){ optionSetsDeleted[k]=rosd[k]; changed=true; } } }
-  for(k in ros){ if(ros.hasOwnProperty(k)){ var rset=ros[k], cs=optionSets[k];
-    if(!cs || (rset.updated||"")>(cs.updated||"")){ optionSets[k]=rset; changed=true; } } }
-  for(k in optionSets){ if(optionSets.hasOwnProperty(k)){ var sdel=optionSetsDeleted[k];
-    if(sdel && sdel>=(optionSets[k].updated||"")){ delete optionSets[k]; changed=true; } } }
   return changed;
 }
 function persistMerged(){
   for(var i=0;i<prompts.length;i++) dbPut(prompts[i]);
   for(var id in deletedMap){ if(deletedMap.hasOwnProperty(id)) dbDel(id); }
   metaPut("deleted", deletedMap);
-  metaPut("optionSets", optionSets);
-  metaPut("optionSetsDeleted", optionSetsDeleted);
 }
 function setFolderStat(state){
   var el=$("folderStat"), btn=$("folderBtn");
@@ -942,7 +918,7 @@ function writeFolderFile(){
   if(!folderHandle) return Promise.resolve();
   return folderHandle.getFileHandle("prompts.json",{create:true}).then(function(fh){
     return fh.createWritable().then(function(w){
-      var payload={ app:"prompt-store", version:1, updated:nowISO(), prompts:prompts, deleted:deletedMap, optionSets:optionSets, optionSetsDeleted:optionSetsDeleted };
+      var payload={ app:"prompt-store", version:1, updated:nowISO(), prompts:prompts, deleted:deletedMap };
       return w.write(JSON.stringify(payload,null,2)).then(function(){ return w.close(); });
     }).then(function(){ return fh.getFile(); }).then(function(file){ lastFolderMtime=file.lastModified; });
   }).then(function(){ setFolderStat("saved"); }, function(){ setFolderStat("error"); });
@@ -1017,61 +993,48 @@ function tryReconnectFolder(){
   });
 }
 
-/* ---------------- 공유 옵션 세트 (선택지 목록) ---------------- */
-function openSetsModal(){ renderSetsList(); $("setsModal").className="modal-overlay on"; }
-function closeSetsModal(){ commitSets(); $("setsModal").className="modal-overlay"; render(); }
-function renderSetsList(){
-  var wrap=$("setsList"); wrap.innerHTML="";
-  var names=[]; for(var k in optionSets){ if(optionSets.hasOwnProperty(k)) names.push(k); }
-  names.sort();
-  if(!names.length){
-    var e=document.createElement("div"); e.className="setempty";
-    e.textContent="아직 옵션 세트가 없습니다. 아래 '새 옵션 세트'로 만들고, 본문의 변수와 같은 이름을 붙이세요 (예: 의상 → {{의상}}).";
-    wrap.appendChild(e);
-  }
-  names.forEach(function(name){ wrap.appendChild(buildSetRow(name, optionSets[name].options)); });
+/* ---------------- 변수 · 선택지 (프롬프트 안, 인라인) ---------------- */
+function varIsOpen(name, opts){
+  return varEditorOpen.hasOwnProperty(name) ? varEditorOpen[name] : (opts.length>0);
 }
-function buildSetRow(name, options){
-  var row=document.createElement("div"); row.className="setrow";
-  var nm=document.createElement("input"); nm.className="setname"; nm.type="text"; nm.value=name||"";
-  nm.placeholder="세트 이름 = 변수 이름 (예: 의상)";
-  var ta=document.createElement("textarea"); ta.className="setopts"; ta.value=(options||[]).join("\n");
-  ta.placeholder="선택지를 한 줄에 하나씩 붙여넣으세요";
-  var foot=document.createElement("div"); foot.className="setfoot";
-  var cnt=document.createElement("span"); cnt.className="setcount"; cnt.textContent=(options||[]).length+"개";
-  var del=document.createElement("button"); del.className="setdel"; del.textContent="삭제";
-  del.onclick=function(){ if(row.parentNode) row.parentNode.removeChild(row); commitSets(); renderSetsList(); };
-  ta.oninput=function(){ cnt.textContent=ta.value.split("\n").filter(function(s){return s.trim();}).length+"개"; scheduleCommitSets(); };
-  nm.oninput=function(){ scheduleCommitSets(); };
-  foot.appendChild(cnt); foot.appendChild(del);
-  row.appendChild(nm); row.appendChild(ta); row.appendChild(foot);
-  return row;
+function renderVarEditor(p){
+  var wrap=$("varEditorWrap"); if(!wrap) return;
+  wrap.innerHTML="";
+  var vars=extractVars(p.body||"");
+  if(!vars.length) return;
+  if(!p.options) p.options={};
+  var lbl=document.createElement("label"); lbl.textContent="변수 · 선택지 (본문에서 자동 감지 · "+vars.length+"개)";
+  wrap.appendChild(lbl);
+  var box=document.createElement("div"); box.className="vedit";
+  vars.forEach(function(name){
+    var opts=(p.options[name]||[]);
+    var open=varIsOpen(name, opts);
+    var row=document.createElement("div"); row.className="verow";
+    var head=document.createElement("div"); head.className="vehead";
+    head.onclick=function(){ varEditorOpen[name]=!open; renderVarEditor(p); };
+    var nm=document.createElement("code"); nm.className="vename"; nm.textContent="{{"+name+"}}";
+    var st=document.createElement("span"); st.className="vestat"+(opts.length?" on":"");
+    st.textContent=opts.length?("선택지 "+opts.length+"개 · 드롭다운"):"자유 입력";
+    var chev=document.createElement("span"); chev.className="vechev"; chev.textContent=open?"▾":"▸";
+    head.appendChild(nm); head.appendChild(st); head.appendChild(chev);
+    row.appendChild(head);
+    if(open){
+      var ta=document.createElement("textarea"); ta.className="veta";
+      ta.value=opts.join("\n"); ta.placeholder="선택지를 한 줄에 하나 붙여넣기 (비우면 자유 입력)";
+      ta.oninput=function(){
+        var arr=ta.value.split("\n").map(function(s){return s.trim();}).filter(function(s){return s;});
+        if(arr.length) p.options[name]=arr; else delete p.options[name];
+        st.textContent=arr.length?("선택지 "+arr.length+"개 · 드롭다운"):"자유 입력";
+        st.className="vestat"+(arr.length?" on":"");
+        scheduleSave(p);
+      };
+      row.appendChild(ta);
+    }
+    box.appendChild(row);
+  });
+  wrap.appendChild(box);
 }
-function addSetRow(){
-  var wrap=$("setsList"); var empty=wrap.getElementsByClassName("setempty")[0];
-  if(empty) wrap.removeChild(empty);
-  var row=buildSetRow("", []); wrap.appendChild(row);
-  row.getElementsByClassName("setname")[0].focus();
-}
-function scheduleCommitSets(){ if(setsCommitTimer) clearTimeout(setsCommitTimer); setsCommitTimer=setTimeout(commitSets, 400); }
-function commitSets(){
-  var wrap=$("setsList"); if(!wrap) return;
-  var rows=wrap.getElementsByClassName("setrow"), newSets={}, i, k;
-  for(i=0;i<rows.length;i++){
-    var nm=rows[i].getElementsByClassName("setname")[0].value.trim();
-    if(!nm) continue;
-    var opts=rows[i].getElementsByClassName("setopts")[0].value.split("\n").map(function(s){return s.trim();}).filter(function(s){return s;});
-    var prev=optionSets[nm];
-    var same=prev && prev.options.length===opts.length && prev.options.join("")===opts.join("");
-    newSets[nm]={ options:opts, updated: same?prev.updated:nowISO() };
-  }
-  for(k in optionSets){ if(optionSets.hasOwnProperty(k) && !newSets.hasOwnProperty(k)){ optionSetsDeleted[k]=nowISO(); } }
-  for(k in newSets){ if(optionSetsDeleted[k]) delete optionSetsDeleted[k]; }
-  optionSets=newSets;
-  metaPut("optionSets", optionSets);
-  metaPut("optionSetsDeleted", optionSetsDeleted);
-  pushFolder();
-}
+
 
 /* ---------------- Events ---------------- */
 function bind(){
@@ -1088,10 +1051,6 @@ function bind(){
     setTimeout(function(){ b.textContent="요청문 복사하기"; b.className="mbtn"; },1800);
   };
   $("aiImport").onclick=importFromReply;
-  $("setsbtn").onclick=openSetsModal;
-  $("setsClose").onclick=closeSetsModal;
-  $("setsAdd").onclick=addSetRow;
-  $("setsModal").onclick=function(e){ if(e.target===$("setsModal")) closeSetsModal(); };
   $("folderBtn").onclick=onFolderBtn;
   $("delbtn").onclick=delPrompt;
   $("exportbtn").onclick=exportJSON;
@@ -1112,15 +1071,9 @@ openDB(function(){
     sortPrompts();
     metaGet("deleted", function(d){
       deletedMap = d || {};
-      metaGet("optionSets", function(os){
-        optionSets = os || {};
-        metaGet("optionSetsDeleted", function(osd){
-          optionSetsDeleted = osd || {};
-          bind();
-          render();
-          tryReconnectFolder();
-        });
-      });
+      bind();
+      render();
+      tryReconnectFolder();
     });
   });
 });
