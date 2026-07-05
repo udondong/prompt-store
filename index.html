@@ -174,6 +174,7 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
   font-family:"SFMono-Regular",Menlo,Consolas,monospace;
 }
 .hint{font-size:12px; color:var(--faint); margin:6px 0 0 2px;}
+.organizebtn{width:100%; height:40px; margin:2px 0 0 0; border-radius:12px; font-size:13.5px; font-weight:700; background:var(--accent); color:#fff; box-shadow:var(--shadow);}
 
 /* preview */
 .varbox{background:var(--card); border:0.8px solid var(--border); border-radius:14px; padding:14px 16px 4px 16px; margin:0 0 16px 0;}
@@ -608,8 +609,11 @@ function fieldBody(p){
   ta.value=p.body||""; ta.placeholder="여기에 프롬프트를 입력하세요.\n\n예) {{주제}}에 대해 {{말투}}로 500자 이내로 써줘.";
   ta.oninput=function(){ p.body=ta.value; scheduleSave(p); refreshListSoft(); updateSubVars(p); renderVarEditor(p); };
   w.appendChild(ta);
+  var org=document.createElement("button"); org.className="organizebtn"; org.textContent="⚡ 통째로 붙여넣었으면 → 자동 정리";
+  org.onclick=function(){ runAutoOrganize(p); };
+  w.appendChild(org);
   var h=document.createElement("div"); h.className="hint";
-  h.textContent="{{변수}}를 넣으면 미리보기에서 값을 채워 최종 프롬프트로 복사할 수 있습니다.";
+  h.textContent="프롬프트를 통째로 붙여넣고 '자동 정리'를 누르면 본문·변수·선택지로 알아서 나눠 저장합니다. ({변수}=값 · ○○ 예시 목록 · [프롬프트 본문] 형식)";
   w.appendChild(h);
   return w;
 }
@@ -623,6 +627,7 @@ function updateSubVars(p){
 function renderPreview(p, area){
   area.innerHTML="";
   var vars=extractVars(p.body||"");
+  if(p.defaults){ for(var dk in p.defaults){ if(p.defaults.hasOwnProperty(dk) && !varValues[dk]) varValues[dk]=p.defaults[dk]; } }
 
   if(vars.length){
     var vb=document.createElement("div"); vb.className="varbox";
@@ -994,6 +999,51 @@ function tryReconnectFolder(){
       } else { pendingHandle=handle; setFolderStat("reconnect"); }
     }).catch(function(){ setFolderStat("off"); });
   });
+}
+
+/* ---------------- 통째로 붙여넣기 → 자동 정리 ---------------- */
+function escapeReg(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
+function extractChoice(t){
+  if(!t) return null;
+  if(/^[★☆*]/.test(t)) return null;
+  var m=t.match(/^\d+[.)]\s*(.+)$/);
+  var s = m ? m[1] : (/^`.+`$/.test(t) ? t : (/^[-•]\s+(.+)$/.test(t) ? t.replace(/^[-•]\s+/,"") : null));
+  if(!s) return null;
+  s=s.replace(/^`+/,"").replace(/`+$/,"").trim();
+  return s||null;
+}
+function autoOrganize(raw){
+  var lines=String(raw).replace(/\r\n/g,"\n").split("\n");
+  var variables={}, choices={}, defaults={}, bodyLines=[];
+  var mode="scan", curVar=null, bodyStarted=false, found=false, i, t, m, h;
+  for(i=0;i<lines.length;i++){
+    var line=lines[i]; t=line.trim();
+    if(!bodyStarted && /^\[?\s*(프롬프트\s*본문|본문|prompt)\s*\]?\s*$/i.test(t)){ bodyStarted=true; mode="body"; found=true; continue; }
+    if(mode==="body"){ bodyLines.push(line); continue; }
+    m=t.match(/^\{\s*([^}=]+?)\s*\}\s*=\s*(.+)$/);
+    if(m){ var nm=m[1].trim(); variables[nm]=1; defaults[nm]=m[2].trim(); found=true; continue; }
+    h=t.match(/^([^\d`★☆*\[].*?)\s*(예시|목록|후보|리스트|선택지)(?:[\s\d종개가지:：()]|$)/);
+    if(h){ curVar=h[1].replace(/[:\-—\s]+$/,"").trim(); if(curVar){ choices[curVar]=choices[curVar]||[]; mode="choices"; found=true; } continue; }
+    if(mode==="choices" && curVar){ var it=extractChoice(t); if(it) choices[curVar].push(it); continue; }
+  }
+  var body = bodyStarted ? bodyLines.join("\n").replace(/^\n+/,"").replace(/\n+$/,"") : "";
+  var names={}, k; for(k in variables) names[k]=1; for(k in choices) names[k]=1;
+  for(k in names){ if(names.hasOwnProperty(k)){ body=body.replace(new RegExp("\\{\\s*"+escapeReg(k)+"\\s*\\}","g"),"{{"+k+"}}"); } }
+  var cleanCh={}; for(k in choices){ if(choices.hasOwnProperty(k) && choices[k].length) cleanCh[k]=choices[k]; }
+  return { found:found, body:body, options:cleanCh, defaults:defaults, varCount:Object.keys(names).length };
+}
+function runAutoOrganize(p){
+  var res=autoOrganize(p.body||"");
+  if(!res.found){ toast("정리할 구조를 못 찾았어요 · {변수}=값 / ○○ 예시 목록 / [프롬프트 본문] 형식이 필요합니다"); return; }
+  if(res.body) p.body=res.body;
+  p.options=res.options;
+  p.defaults=res.defaults;
+  varEditorOpen={}; varValues={};
+  scheduleSave(p);
+  renderEditor(p, $("body-area"));
+  updateSubVars(p);
+  var setCount=Object.keys(res.options).length;
+  toast("정리 완료 · 변수 "+res.varCount+"개"+(setCount?", 선택지 "+setCount+"묶음":""));
 }
 
 /* ---------------- 변수 · 선택지 (프롬프트 안, 인라인) ---------------- */
