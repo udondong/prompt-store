@@ -98,29 +98,8 @@ input,textarea{font-family:inherit; color:inherit;}
   width:100%; height:44px; border-radius:12px; font-size:14.5px; font-weight:700;
   background:var(--accent); color:#fff; box-shadow:var(--shadow);
 }
-.newsub{
-  width:100%; height:38px; border-radius:11px; font-size:13px; font-weight:600;
-  background:var(--card2); border:0.8px solid var(--border); color:var(--accent); margin:8px 0 0 0;
-}
 .savestat{font-size:12px; font-weight:600; color:var(--success); margin:0 12px 0 8px; white-space:nowrap;}
 .savestat.saving{color:var(--sub);}
-
-/* modal */
-.modal-overlay{position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.45); display:none; z-index:50; padding:20px;}
-.modal-overlay.on{display:flex; align-items:center; justify-content:center;}
-.modal{width:92%; max-width:640px; max-height:88%; overflow-y:auto; background:var(--card); border-radius:20px; padding:22px 22px 24px; box-shadow:0 20px 60px rgba(0,0,0,.4);}
-.modal .mhead{display:flex; align-items:center; margin:0 0 6px 0;}
-.modal .mhead h3{flex:1; margin:0; font-size:18px; font-weight:700;}
-.modal .mclose{width:30px; height:30px; border-radius:9px; font-size:18px; color:var(--sub); background:var(--card2); border:0.8px solid var(--border);}
-.modal .mdesc{font-size:13px; color:var(--sub); line-height:1.6; margin:0 0 16px 0;}
-.mstep{margin:0 0 18px 0;}
-.mstep .sl{display:block; font-size:13px; font-weight:700; color:var(--text); margin:0 0 4px 0;}
-.mstep .sd{font-size:12px; color:var(--sub); line-height:1.55; margin:0 0 8px 0;}
-.mstep textarea{width:100%; min-height:110px; border-radius:12px; border:0.8px solid var(--border); background:var(--card2); padding:12px; font-size:13.5px; line-height:1.55; outline:none; resize:vertical; font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
-.mstep textarea:focus{border-color:var(--accent);}
-.mbtn{margin:9px 0 0 0; padding:9px 16px; border-radius:11px; font-size:13.5px; font-weight:700; background:var(--accent); color:#fff; box-shadow:var(--shadow);}
-.mbtn.done{background:var(--success);}
-.mbtn.ghost{background:var(--card2); color:var(--accent); border:0.8px solid var(--border); box-shadow:none;}
 select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:pointer;}
 .vback{margin-left:8px; padding:0 11px; height:38px; min-width:48px; border-radius:10px; font-size:12px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
 .vedit{border:0.8px solid var(--border); border-radius:14px; overflow:hidden; background:var(--card);}
@@ -241,7 +220,6 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
     <div class="tagbar" id="tagbar"></div>
     <div class="new-wrap">
       <button class="newbig" id="newbtn">+ 새 프롬프트 만들기</button>
-      <button class="newsub" id="aibtn">붙여넣기로 가져오기 · AI 정리</button>
     </div>
     <div id="list"></div>
     <div class="side-foot">
@@ -269,29 +247,6 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
       <button class="del" id="delbtn">삭제</button>
     </div>
     <div id="body-area"></div>
-  </div>
-</div>
-<div class="modal-overlay" id="aiModal">
-  <div class="modal">
-    <div class="mhead">
-      <h3>붙여넣기로 가져오기 · AI 정리</h3>
-      <button class="mclose" id="aiClose">×</button>
-    </div>
-    <p class="mdesc">기존 프롬프트를 붙여넣으면 요청문을 만들어 드립니다. 그걸 챗지피티·클로드에 붙여넣고, 받은 답(JSON)을 아래에 붙여넣으면 제목·태그·본문·변수로 나눠서 저장합니다.</p>
-
-    <div class="mstep">
-      <span class="sl">① 기존 프롬프트 붙여넣기</span>
-      <span class="sd">여러 개를 한꺼번에 붙여넣어도 됩니다. 형식이 제각각이어도 괜찮아요.</span>
-      <textarea id="aiRaw" placeholder="여기에 기존 프롬프트를 붙여넣으세요."></textarea>
-      <button class="mbtn" id="aiCopyReq">요청문 복사하기</button>
-    </div>
-
-    <div class="mstep">
-      <span class="sl">② AI 답변(JSON) 붙여넣기</span>
-      <span class="sd">복사한 요청문을 챗지피티·클로드에 붙여넣고, 받은 답 전체를 여기에 붙여넣으세요.</span>
-      <textarea id="aiReply" placeholder="AI가 준 답변을 붙여넣으세요."></textarea>
-      <button class="mbtn ghost" id="aiImport">가져와서 저장</button>
-    </div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -810,72 +765,6 @@ function importJSON(file){
   reader.readAsText(file);
 }
 
-/* ---------------- AI 정리 (복사·붙여넣기 왕복) ---------------- */
-function buildInstruction(raw){
-  return [
-    "아래 <원문>에 있는 프롬프트를 정리해 줘.",
-    "",
-    "규칙:",
-    "1. 원문에 여러 개의 프롬프트가 섞여 있으면 각각으로 분리한다.",
-    "2. 각 프롬프트마다 (가) 20자 내외의 짧은 제목, (나) 태그 1~3개, (다) 개선한 본문을 만든다.",
-    "3. 본문은 원래 의도는 유지하되 더 명확하고 구조적으로 다듬는다(군더더기 제거).",
-    "4. 매번 바뀔 만한 부분(주제·대상·말투·입력값 등)은 {{변수이름}} 형태로 바꾼다. 변수 이름은 한글로.",
-    "5. 결과는 아래 [형식]의 JSON '하나만' 출력한다. 설명·인사말·코드펜스(```) 없이 순수 JSON만.",
-    "",
-    "[형식]",
-    '{"prompts":[{"title":"제목","tags":["태그1","태그2"],"body":"개선된 본문(변수는 {{이름}})"}]}',
-    "",
-    "<원문>",
-    raw,
-    "</원문>"
-  ].join("\n");
-}
-function parseReply(text){
-  if(!text) return null;
-  var candidates=[];
-  var fence=text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if(fence) candidates.push(fence[1]);
-  candidates.push(text);
-  for(var i=0;i<candidates.length;i++){
-    var c=candidates[i];
-    var s=c.indexOf("{"), e=c.lastIndexOf("}");
-    if(s<0||e<0||e<s) continue;
-    try{
-      var obj=JSON.parse(c.slice(s,e+1));
-      var arr=obj && obj.prompts ? obj.prompts : (obj && (obj.body||obj.title) ? [obj] : null);
-      if(arr && arr.length) return arr;
-    }catch(err){ /* try next */ }
-  }
-  return null;
-}
-function importFromReply(){
-  var raw=$("aiReply").value;
-  var list=parseReply(raw);
-  if(!list){ toast("JSON을 못 읽었어요. 답변 전체를 붙여넣었는지 확인하세요"); return; }
-  var clean=[];
-  for(var i=0;i<list.length;i++){
-    var r=list[i]||{};
-    var body=(typeof r.body==="string")?r.body:"";
-    var title=(typeof r.title==="string" && r.title)?r.title:(body.split("\n")[0]||"새 프롬프트").slice(0,30);
-    if(!body && !r.title) continue;
-    var tags=[];
-    if(Array.isArray(r.tags)) tags=r.tags.map(function(t){ return String(t).trim(); }).filter(function(t){ return t; });
-    clean.push({ id:uid(), title:title, tags:tags, body:body, created:nowISO(), updated:nowISO() });
-  }
-  if(!clean.length){ toast("가져올 프롬프트가 없어요"); return; }
-  var names=clean.map(function(p){ return "· "+p.title; }).join("\n");
-  if(!window.confirm(clean.length+"개의 프롬프트를 가져올까요?\n\n"+names)) return;
-  for(var j=0;j<clean.length;j++){ prompts.unshift(clean[j]); dbPut(clean[j]); }
-  sortPrompts();
-  selectedId=clean[0].id; mode="edit"; varValues={};
-  closeAiModal();
-  render();
-  pushFolder();
-  toast(clean.length+"개 가져왔습니다");
-}
-function openAiModal(){ $("aiRaw").value=""; $("aiReply").value=""; var c=$("aiCopyReq"); c.textContent="요청문 복사하기"; c.className="mbtn"; $("aiModal").className="modal-overlay on"; }
-function closeAiModal(){ $("aiModal").className="modal-overlay"; }
-
 /* ---------------- 폴더 동기화 (File System Access · OAuth 불필요) ---------------- */
 /* merge remote {prompts,deleted} into local prompts[] + deletedMap. tombstone 병합. */
 function mergeData(remote){
@@ -1099,17 +988,6 @@ function renderVarEditor(p){
 function bind(){
   $("search").oninput=function(){ query=this.value; render(); };
   $("newbtn").onclick=newPrompt;
-  $("aibtn").onclick=openAiModal;
-  $("aiClose").onclick=closeAiModal;
-  $("aiModal").onclick=function(e){ if(e.target===$("aiModal")) closeAiModal(); };
-  $("aiCopyReq").onclick=function(){
-    var raw=$("aiRaw").value.trim();
-    if(!raw){ toast("먼저 기존 프롬프트를 붙여넣으세요"); return; }
-    copyText(buildInstruction(raw));
-    var b=$("aiCopyReq"); b.textContent="복사됨 · 챗지피티에 붙여넣기"; b.className="mbtn done";
-    setTimeout(function(){ b.textContent="요청문 복사하기"; b.className="mbtn"; },1800);
-  };
-  $("aiImport").onclick=importFromReply;
   $("folderBtn").onclick=onFolderBtn;
   $("delbtn").onclick=delPrompt;
   $("exportbtn").onclick=exportJSON;
