@@ -123,14 +123,15 @@ input,textarea{font-family:inherit; color:inherit;}
 .mbtn.ghost{background:var(--card2); color:var(--accent); border:0.8px solid var(--border); box-shadow:none;}
 select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:pointer;}
 .vback{margin-left:8px; padding:0 11px; height:38px; min-width:48px; border-radius:10px; font-size:12px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
-.setrow{background:var(--card2); border:0.8px solid var(--border); border-radius:14px; padding:12px; margin:0 0 12px 0;}
-.setname{width:100%; height:38px; border-radius:10px; border:0.8px solid var(--border); background:var(--card); padding:0 12px; font-size:14px; font-weight:600; outline:none; margin:0 0 8px 0;}
-.setname:focus,.setopts:focus{border-color:var(--accent);}
-.setopts{width:100%; min-height:96px; border-radius:10px; border:0.8px solid var(--border); background:var(--card); padding:10px 12px; font-size:13px; line-height:1.5; outline:none; resize:vertical; font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
-.setfoot{display:flex; align-items:center; margin-top:8px;}
-.setcount{flex:1; font-size:12px; color:var(--sub);}
-.setdel{padding:6px 12px; border-radius:9px; font-size:12px; font-weight:600; background:var(--card); border:0.8px solid var(--border); color:var(--danger);}
-.setempty{font-size:13px; color:var(--sub); line-height:1.6; padding:14px; text-align:center;}
+.vedit{border:0.8px solid var(--border); border-radius:14px; overflow:hidden; background:var(--card);}
+.verow{border-bottom:0.8px solid var(--border);}
+.verow:last-child{border-bottom:none;}
+.vehead{display:flex; align-items:center; padding:11px 13px; cursor:pointer;}
+.vename{font-size:13px; color:var(--accent); font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
+.vestat{flex:1; text-align:right; font-size:12px; color:var(--sub); margin:0 10px;}
+.vestat.on{color:var(--accent); font-weight:600;}
+.vechev{font-size:12px; color:var(--faint); width:12px;}
+.veta{width:100%; min-height:72px; border:none; border-top:0.8px solid var(--border); background:var(--card2); padding:11px 13px; font-size:13px; line-height:1.55; outline:none; resize:vertical; font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
 .side-foot{padding:10px 14px 14px 14px; border-top:0.8px solid var(--border);}
 .folder-sync{margin:0 0 10px 0;}
 .folder-sync button{display:block; width:100%; height:38px; margin:0; border-radius:11px; font-size:13px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
@@ -508,7 +509,7 @@ function renderList(){
   vis.forEach(function(p){
     var card=document.createElement("div");
     card.className="pcard"+(p.id===selectedId?" sel":"");
-    card.onclick=function(){ selectedId=p.id; mode="edit"; varValues={}; render(); };
+    card.onclick=function(){ selectedId=p.id; mode="edit"; varValues={}; customVars={}; varEditorOpen={}; render(); };
 
     var t=document.createElement("div"); t.className="t"; t.textContent=p.title||"(제목 없음)";
     var snip=document.createElement("div"); snip.className="snip";
@@ -570,10 +571,12 @@ function shortDate(iso){
 
 function renderEditor(p, area){
   area.innerHTML="";
-  var f1=fieldTitle(p);
-  var f2=fieldTags(p);
-  var f3=fieldBody(p);
-  area.appendChild(f1); area.appendChild(f2); area.appendChild(f3);
+  area.appendChild(fieldTitle(p));
+  area.appendChild(fieldTags(p));
+  area.appendChild(fieldBody(p));
+  var ve=document.createElement("div"); ve.id="varEditorWrap"; ve.className="field";
+  area.appendChild(ve);
+  renderVarEditor(p);
 }
 function fieldTitle(p){
   var w=document.createElement("div"); w.className="field";
@@ -603,7 +606,7 @@ function fieldBody(p){
   w.innerHTML='<label>본문 (마크다운 · 변수는 {{이름}})</label>';
   var ta=document.createElement("textarea"); ta.className="ta";
   ta.value=p.body||""; ta.placeholder="여기에 프롬프트를 입력하세요.\n\n예) {{주제}}에 대해 {{말투}}로 500자 이내로 써줘.";
-  ta.oninput=function(){ p.body=ta.value; scheduleSave(p); refreshListSoft(); updateSubVars(p); };
+  ta.oninput=function(){ p.body=ta.value; scheduleSave(p); refreshListSoft(); updateSubVars(p); renderVarEditor(p); };
   w.appendChild(ta);
   var h=document.createElement("div"); h.className="hint";
   h.textContent="{{변수}}를 넣으면 미리보기에서 값을 채워 최종 프롬프트로 복사할 수 있습니다.";
@@ -727,11 +730,11 @@ function toast(msg){
 
 /* ---------------- Actions ---------------- */
 function newPrompt(){
-  var p={ id:uid(), title:"새 프롬프트", tags:[], body:"", created:nowISO(), updated:nowISO() };
+  var p={ id:uid(), title:"새 프롬프트", tags:[], body:"", options:{}, created:nowISO(), updated:nowISO() };
   prompts.unshift(p);
   dbPut(p);
   pushFolder();
-  selectedId=p.id; mode="edit"; varValues={};
+  selectedId=p.id; mode="edit"; varValues={}; customVars={}; varEditorOpen={};
   render();
   var inp=$("body-area").getElementsByClassName("inp")[0];
   if(inp){ inp.focus(); inp.select(); }
