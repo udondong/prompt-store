@@ -6,9 +6,10 @@
 
 - **웹앱 주소**: https://udondong.github.io/prompt-store/  (아무 기기·브라우저에서 열면 바로 사용)
 - **모든 기기 공통 기능**: 프롬프트 작성·검색·태그·`{{변수}}` 채우기·마크다운 미리보기·복사·저장(로컬)·내보내기/불러오기(JSON). 기기 안 가림.
-- **맥·윈도우 (크롬/엣지)**: 사이드바 "드라이브 폴더 연결" 1회 → 동기화폴더 안 폴더 지정 → 이후 자동으로 그 폴더에 저장, 구글 드라이브가 맥↔윈도우 자동 동기화(OAuth 없음). 다른 데스크탑도 같은 폴더 연결해두면 서로 동기화.
-- **갤럭시탭·아이패드**: 자동 동기화는 없음. 주소 열어 그대로 쓰고, 기기 간 이동은 **내보내기(JSON)→구글드라이브→다른 기기에서 불러오기**(수동). "홈 화면에 추가"하면 앱 아이콘으로 실행되고 iOS 저장 소실도 방지됨.
-- **개념**: 앱 사용 자체는 전 기기 100% 동일, 오직 "기기 간 자동 이동"만 데스크탑(크롬/엣지) 한정. 자동화만 빼면 어디서도 문제 없음.
+- **Safari·Chrome·Edge 공통 자동 동기화**: 사이드바 **"Google Drive 연결"** → 같은 Google 계정으로 승인하면 비공개 앱 데이터 영역의 `prompts.json`을 읽고 쓴다. 연결된 세션에서는 편집 즉시 저장, 창 포커스+15초 폴링으로 다른 기기 변경을 병합한다.
+- **보안상 재연결**: 정적 GitHub Pages 앱이라 OAuth 액세스 토큰은 브라우저 메모리에만 두며 저장하지 않는다. 페이지를 새로 열거나 약 1시간 토큰이 만료되면 "Google Drive 다시 연결"을 한 번 누른다. 프롬프트 데이터와 OAuth 토큰은 repo에 올리지 않는다.
+- **맥·윈도우 Chrome/Edge 보조 방식**: 기존 **"데스크탑 폴더 연결"**도 유지한다. File System Access API로 사용자가 고른 로컬 Google Drive 동기화 폴더의 `prompts.json`을 직접 읽고 쓴다. Safari에서는 이 보조 버튼을 숨긴다.
+- **갤럭시탭·아이패드**: 현재 Safari/Chrome에서 Google 로그인 팝업이 동작하면 같은 Google Drive 자동 동기화를 쓸 수 있다. 구형 iOS 12 Safari 실기기 호환은 미검증이며, 로그인 불가 시 내보내기/불러오기(JSON)를 사용한다. "홈 화면에 추가"하면 앱처럼 실행된다.
 
 ## 무엇인가
 
@@ -31,11 +32,25 @@
 ## 저장·동기화 설계
 
 - **로컬(항상)**: IndexedDB. 오프라인 작동, 모든 기기.
-- **채택한 동기화 방식 = 드라이브 폴더 저장(OAuth 없음)**: 사이드바 "드라이브 폴더 연결"(File System Access API) → 동기화폴더 안 폴더를 지정하면 앱이 그 폴더에 `prompts.json`을 직접 읽고/쓴다. 구글 드라이브 데몬이 맥↔윈도우 자동 동기화. **크롬·엣지 데스크탑 전용**(사파리·태블릿 미지원 → 그 기기는 로컬+수동 JSON). 사용자 선택(2026-07-05): 태블릿 자동 동기화보다 OAuth 없는 단순함을 우선.
-  - 병합: `prompts.json`은 `{prompts, deleted}`. 병합은 id별 `updated` 최신 우선 + **tombstone**(`deleted` 맵의 삭제시각이 항목 `updated`보다 크거나 같으면 제거). 삭제도 기기 간 전파. 편집이 삭제보다 나중이면 부활.
+- **주 동기화 = Google Drive API + OAuth**: Safari·Chrome·Edge 공통. Google Identity Services 토큰 모델과 비민감 최소 권한 `drive.appdata`만 요청한다. 파일은 Google Drive UI에 노출되지 않는 앱 전용 `appDataFolder/prompts.json`이며, 같은 OAuth 클라이언트 ID와 Google 계정으로 연결한 브라우저끼리 공유한다.
+  - 최초 연결: Google Cloud에서 웹 애플리케이션 OAuth 클라이언트 ID를 만든 뒤 앱 연결 창에 붙여넣는다. 공개 클라이언트 식별자라 비밀키가 아니며 브라우저 IndexedDB `meta`에만 저장한다.
+  - 토큰: 액세스 토큰은 메모리에만 보관하고 약 1시간 만료·페이지 재시작 시 사용자 클릭으로 재발급한다. refresh token·client secret은 사용하지 않는다.
   - 반영 시점: 편집/생성/삭제/가져오기 시 debounce push. 창 focus + 15초 폴링으로 상대 기기 변경 pull.
+  - API 파일: 없으면 multipart upload로 생성, 있으면 media PATCH로 갱신. 연결 직후 원격과 로컬을 병합하고 합본을 다시 저장한다.
+- **보조 동기화 = 데스크탑 폴더 저장(OAuth 없음)**: 기존 File System Access API 방식. Chrome·Edge 데스크탑에서만 보이며, 사용자가 지정한 로컬 폴더의 `prompts.json`을 직접 읽고 쓴다.
+  - 병합: `prompts.json`은 `{prompts, deleted}`. 병합은 id별 `updated` 최신 우선 + **tombstone**(`deleted` 맵의 삭제시각이 항목 `updated`보다 크거나 같으면 제거). 삭제도 기기 간 전파. 편집이 삭제보다 나중이면 부활.
   - 재연결: 디렉터리 핸들을 IndexedDB(meta)에 저장 → 재방문 시 권한 granted면 자동, 아니면 "폴더 다시 연결" 클릭 1회.
-- **대안(미채택, 필요 시)**: Google Drive API + OAuth(`drive.file`) — 태블릿까지 자동 동기화가 필요해지면 그때. 승인 JS 출처 = `https://udondong.github.io`.
+
+## Google OAuth 최초 설정
+
+1. Google Cloud Console에서 프로젝트를 만들거나 선택하고 **Google Drive API**를 사용 설정한다.
+2. OAuth 동의 화면을 구성한다. 테스트 상태라면 실제 사용할 Google 계정을 테스트 사용자에 추가한다.
+3. 사용자 인증 정보 → OAuth 클라이언트 ID → **웹 애플리케이션**을 만든다.
+4. 승인된 JavaScript 원본에 `https://udondong.github.io`를 등록한다. 로컬 OAuth 실측이 필요하면 `http://localhost:8788`도 별도 등록한다.
+5. 발급된 `…apps.googleusercontent.com` 클라이언트 ID를 앱의 "Google Drive 연결" 최초 입력창에 붙여넣는다.
+6. 각 기기에서 같은 Google 계정으로 연결한다. 첫 연결 시 로컬 IndexedDB와 원격 앱 데이터가 병합된다.
+
+클라이언트 ID는 공개 웹앱 식별자이며 client secret이 아니다. client secret·refresh token·액세스 토큰을 이 repo나 `prompts.json`에 기록하지 않는다.
 
 ## 배포 (별도 repo · GitHub Pages)
 
@@ -54,16 +69,17 @@
 
 ## 현재 진행 상태
 
-- ① 마지막 작업: 2026-07-05
+- ① 마지막 작업: 2026-07-23
 - ② 완료: `index.html` 구현(목록/검색/태그, 편집, `{{변수}}` 템플릿, 마크다운 미리보기, 한번에 복사, IndexedDB 자동저장+헤더 저장상태 표시, "+새 프롬프트" 상단 버튼, JSON 내보내기/불러오기, 라이트·다크, 구형 WebKit 안전문법). **GitHub Pages 배포 완료** → https://udondong.github.io/prompt-store/ (별도 repo `udondong/prompt-store`, extra-repos.txt 등록).
 - ② 추가: 예시(시드) 제거 — 빈 상태 시작.
 - ② 제거: "붙여넣기로 가져오기 · AI 정리"(챗지피티 왕복) 폐지 — 규칙기반 "자동 정리"와 중복·혼동이라 사용자 요청으로 삭제. 정리 경로는 "새 프롬프트 → 붙여넣기 → 자동 정리" 하나로 통일.
 - ② 추가: UI 디자인 산출물 HTML을 `design/프롬프트저장소_UI_산출_20260705.html`에 저장(작업지시서로 뽑은 결과물, 정본 아님·산출물 기록용, AdGuard 주입 스크립트 제거). 앱 아이콘 심볼 확정 = 말풍선 안 굵은 중괄호 `{ }`, 정체성 색 #2E8DEE(현재 favicon과 일치).
-- ② 추가: **드라이브 폴더 저장 동기화** 구현(File System Access API, OAuth 없음). "드라이브 폴더 연결" 버튼 + tombstone 병합 + focus/15초 폴링 + 핸들 재연결. 로컬 검증: 병합 로직 4개 시나리오(최신우선·삭제전파·부활·tombstone제거) 통과, 콘솔 에러 0, 미지원/미연결 graceful. **미검증: 실제 폴더 선택·크로스기기 동기화**(크롬 picker는 헤드리스 검증 불가 → 우동님 크롬에서 실제 확인 필요).
+- ② 추가: **Safari·Chrome·Edge 공통 Google Drive 동기화** 구현(Google Identity Services + Drive API `appDataFolder`). 최초 OAuth 클라이언트 ID 입력·메모리 전용 액세스 토큰·최초 파일 생성·기존 파일 읽기/병합·수정 저장·focus/15초 폴링·토큰 만료 재연결 상태를 추가. 기존 Chrome/Edge 폴더 동기화는 보조 방식으로 유지하고 Safari에서는 해당 버튼을 숨김.
+- ② 검증: 모의 GIS/Drive API를 사용한 Playwright 실제 브라우저 검증에서 ① 최초 `appDataFolder/prompts.json` 생성 ② 편집 후 자동 PATCH ③ 기존 원격 프롬프트+로컬 프롬프트 병합 후 합본 업로드 ④ File System Access 미지원 환경에서 Google 버튼만 표시 ⑤ 콘솔 오류 0을 확인.
 - ② 재설계(단순화): 공유 옵션 세트 메뉴 폐지 → **변수별 선택지를 프롬프트 편집 화면 안으로** 이동(`prompt.options`). 별도 메뉴·이름 맞추기 없음. 구버전 optionSets 파일은 불러오기 시 자동 변환.
 - ② **통째로 붙여넣기 → 자동 정리** 추가: 원문 붙여넣고 버튼 1번 → 본문·변수·선택지·기본값 자동 분리(`autoOrganize`, 규칙 기반, AI 없음). `{변수}=값`·`○○ 예시 목록`·`[프롬프트 본문]` 인식, `{ }`→`{{ }}` 변환, ★등급·카테고리·번호·백틱 스킵, 설정값→미리보기 기본값 프리필. ⚠️ 한글 `\b` 미작동 함정 있었음(수정: 헤더 키워드 뒤 `\b` 대신 문자셋 룩). 로컬 검증: 사용자 실제 양식(설정값·의상 예시·상황 예시·본문) 대표 샘플로 본문 변환·의상/상황 선택지 추출·기본값·미리보기 드롭다운/프리필 확인, 콘솔 에러 0.
 - ② 추가: **PWA(홈 화면 추가)** — manifest.webmanifest + apple-touch-icon.png + icon-192/512.png + favicon.svg(디자인 심볼: 말풍선+`( )`, #2E8DEE) + theme-color/apple 메타. 태블릿 홈 화면 추가 시 앱처럼 실행·iOS 저장 소실 방지. 폴더 미지원 기기(태블릿·사파리)는 folderStat가 "내보내기/불러오기로 이동" 안내. 로컬 검증: 매니페스트 유효(아이콘 2개)·전 에셋 200·콘솔 에러 0. CLAUDE.md 상단에 주소·기기별 사용법 정리.
-- ③ 남은 것(사용자 확인·선택): (a) **실기기 확인** — 크롬/엣지에서 폴더 연결→저장→다른 기기 동기화, 태블릿 홈 화면 추가·불러오기. (b) 태블릿 자동 동기화 필요 시 Drive API(OAuth) 추가. (c) 앱 아이콘 macOS/iOS/Android 네이티브 에셋(현재는 웹 파비콘/터치아이콘까지). (d) 디자인 산출물 아이디어(메인 상단 카드·편집/미리보기 2분할 등) 실제 앱 반영 여부. (e) 필요 시 "AI 정리" 요청문 튜닝.
+- ③ 남은 것(사용자 확인): (a) Google Cloud OAuth 클라이언트 생성·Drive API 활성화·승인 원본 등록 (b) 실제 Google 계정으로 macOS Safari↔Chrome/Edge 교차 동기화 (c) iOS 12 Safari·갤럭시탭 Google 로그인 호환 (d) 기존 Chrome/Edge 폴더 연결 실기기 확인 (e) 앱 아이콘 네이티브 에셋과 디자인 산출물 반영 여부.
 - ④ 검증한 것: 로컬 Claude_Preview로 목록/검색/태그/선택/편집/`{{변수}}` 치환/마크다운 렌더/저장상태/IndexedDB 영속/라이트·다크 동작 확인. 라이브 URL HTTP 200·앱 서빙 확인.
-- ⑤ 검증 못 한 것: 실제 갤럭시탭·아이패드 Safari 동작, 클립보드 복사 실기기 동작, 대량 프롬프트 성능, Drive 동기화(미구현).
-- ⑥ 다음 작업자 실행: Drive 동기화는 사용자가 Google Cloud OAuth 클라이언트 ID를 준비했는지부터 확인 → 준비됐으면 GIS+Drive REST 코드 추가. 로컬 재확인은 "실행·검증"의 http.server 명령.
+- ⑤ 검증 못 한 것: 실제 Google OAuth/Drive 계정 호출, macOS·iOS Safari 실기기, 갤럭시탭, 클립보드 복사 실기기, 대량 프롬프트 성능.
+- ⑥ 다음 작업자 실행: 위 "Google OAuth 최초 설정"을 완료해 클라이언트 ID를 준비 → 라이브 앱에서 Safari와 Chrome으로 같은 계정 연결 → 프롬프트 생성/수정/삭제가 양방향 반영되는지 확인.

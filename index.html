@@ -113,7 +113,9 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
 .veta{width:100%; min-height:72px; border:none; border-top:0.8px solid var(--border); background:var(--card2); padding:11px 13px; font-size:13px; line-height:1.55; outline:none; resize:vertical; font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
 .side-foot{padding:10px 14px 14px 14px; border-top:0.8px solid var(--border);}
 .folder-sync{margin:0 0 10px 0;}
-.folder-sync button{display:block; width:100%; height:38px; margin:0; border-radius:11px; font-size:13px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
+.side-foot .folder-sync button{display:block; width:100%; height:38px; margin:0; border-radius:11px; font-size:13px; font-weight:600; background:var(--card2); border:0.8px solid var(--border); color:var(--accent);}
+.side-foot .folder-sync button.google{background:var(--accent); color:#fff; border-color:transparent;}
+.side-foot .folder-sync button.folder-alt{margin-top:9px;}
 .folderstat{display:block; font-size:11px; color:var(--sub); margin:6px 2px 0 2px; line-height:1.4;}
 .folderstat.on{color:var(--success);}
 .folderstat.err{color:var(--danger);}
@@ -224,8 +226,12 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
     <div id="list"></div>
     <div class="side-foot">
       <div class="folder-sync">
-        <button id="folderBtn">드라이브 폴더 연결</button>
-        <span class="folderstat" id="folderStat">연결 안 됨 · 크롬/엣지 데스크탑</span>
+        <button class="google" id="googleBtn">Google Drive 연결</button>
+        <span class="folderstat" id="googleStat">Safari·Chrome·Edge 공통 자동 동기화</span>
+        <div id="folderOnly">
+          <button class="folder-alt" id="folderBtn">데스크탑 폴더 연결</button>
+          <span class="folderstat" id="folderStat">Chrome·Edge 전용 보조 방식</span>
+        </div>
       </div>
       <button id="exportbtn">내보내기</button>
       <button id="importbtn">불러오기</button>
@@ -251,6 +257,7 @@ select.vv{padding:0 10px; -webkit-appearance:none; appearance:none; cursor:point
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 "use strict";
 (function(){
@@ -313,6 +320,9 @@ var varValues={};
 var saveTimer=null;
 var deletedMap={};
 var customVars={}, varEditorOpen={};
+var googleClientId="", googleTokenClient=null, googleAccessToken="", googleConnected=false;
+var googleFileId="", googleTokenExpiresAt=0, googleSyncTimer=null, googlePollTimer=null;
+var googleWriteBusy=false, googleWriteAgain=false, lastGoogleMtime="";
 var folderHandle=null, pendingHandle=null, folderConnected=false;
 var folderSyncTimer=null, folderPollTimer=null, lastFolderMtime=0;
 
@@ -671,7 +681,7 @@ function scheduleSave(p){
   p.updated=nowISO();
   setSaveStat("saving");
   if(saveTimer) clearTimeout(saveTimer);
-  saveTimer=setTimeout(function(){ dbPut(p); sortPrompts(); setSaveStat("saved"); pushFolder(); },400);
+  saveTimer=setTimeout(function(){ dbPut(p); sortPrompts(); setSaveStat("saved"); pushSync(); },400);
 }
 
 /* ---------------- Clipboard ---------------- */
@@ -699,7 +709,7 @@ function newPrompt(){
   var p={ id:uid(), title:"새 프롬프트", tags:[], body:"", options:{}, created:nowISO(), updated:nowISO() };
   prompts.unshift(p);
   dbPut(p);
-  pushFolder();
+  pushSync();
   selectedId=p.id; mode="edit"; varValues={}; customVars={}; varEditorOpen={};
   render();
   var inp=$("body-area").getElementsByClassName("inp")[0];
@@ -715,7 +725,7 @@ function delPrompt(){
   prompts=prompts.filter(function(x){ return x.id!==p.id; });
   selectedId=null;
   render();
-  pushFolder();
+  pushSync();
 }
 function exportJSON(){
   var data=JSON.stringify({ app:"prompt-store", version:1, exported:nowISO(), prompts:prompts }, null, 2);
@@ -759,13 +769,13 @@ function importJSON(file){
     prompts=Object.keys(byId).map(function(k){ return byId[k]; });
     sortPrompts();
     render();
-    pushFolder();
+    pushSync();
     toast("불러오기 완료 · 프롬프트 추가 "+added+", 갱신 "+updated);
   };
   reader.readAsText(file);
 }
 
-/* ---------------- 폴더 동기화 (File System Access · OAuth 불필요) ---------------- */
+/* ---------------- 공통 동기화 병합 ---------------- */
 /* merge remote {prompts,deleted} into local prompts[] + deletedMap. tombstone 병합. */
 function mergeData(remote){
   if(!remote) return false;
@@ -796,13 +806,232 @@ function persistMerged(){
   for(var id in deletedMap){ if(deletedMap.hasOwnProperty(id)) dbDel(id); }
   metaPut("deleted", deletedMap);
 }
+
+function pushSync(){
+  pushGoogle();
+  pushFolder();
+}
+
+/* ---------------- Google Drive 동기화 (Safari·Chrome·Edge 공통) ---------------- */
+/* OAuth 토큰은 메모리에만 두고, 데이터는 앱 전용 비공개 appDataFolder에 저장한다. */
+var GOOGLE_SCOPE="https://www.googleapis.com/auth/drive.appdata";
+var GOOGLE_API="https://www.googleapis.com/drive/v3";
+var GOOGLE_UPLOAD="https://www.googleapis.com/upload/drive/v3";
+
+function setGoogleStat(state){
+  var el=$("googleStat"), btn=$("googleBtn");
+  if(!el) return;
+  if(state==="saved"){ el.textContent="Google Drive 동기화 켜짐 ✓"; el.className="folderstat on"; if(btn) btn.textContent="지금 동기화"; }
+  else if(state==="saving"){ el.textContent="Google Drive에 저장 중…"; el.className="folderstat"; }
+  else if(state==="reconnect"){ el.textContent="보안을 위해 Google Drive를 다시 연결하세요"; el.className="folderstat"; if(btn) btn.textContent="Google Drive 다시 연결"; }
+  else if(state==="loading"){ el.textContent="Google 연결 모듈을 불러오는 중…"; el.className="folderstat"; }
+  else if(state==="setup"){ el.textContent="최초 1회 OAuth 클라이언트 ID가 필요합니다"; el.className="folderstat"; }
+  else if(state==="error"){ el.textContent="Google Drive 동기화 오류 — 다시 연결하세요"; el.className="folderstat err"; if(btn) btn.textContent="Google Drive 다시 연결"; }
+  else { el.textContent="Safari·Chrome·Edge 공통 자동 동기화"; el.className="folderstat"; if(btn) btn.textContent="Google Drive 연결"; }
+}
+function validGoogleClientId(id){
+  return /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(id||"");
+}
+function configureGoogleClientId(){
+  var entered=window.prompt(
+    "Google OAuth 웹 클라이언트 ID를 붙여넣으세요.\n\n승인된 JavaScript 원본:\nhttps://udondong.github.io",
+    googleClientId||""
+  );
+  if(entered===null) return false;
+  entered=entered.trim();
+  if(!validGoogleClientId(entered)){
+    toast("OAuth 클라이언트 ID 형식이 올바르지 않습니다");
+    setGoogleStat("setup");
+    return false;
+  }
+  googleClientId=entered;
+  metaPut("googleClientId", googleClientId);
+  googleTokenClient=null;
+  return true;
+}
+function initGoogleTokenClient(){
+  if(googleTokenClient) return true;
+  if(!googleClientId) return false;
+  if(!window.google || !google.accounts || !google.accounts.oauth2) return false;
+  googleTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:googleClientId,
+    scope:GOOGLE_SCOPE,
+    callback:function(response){
+      if(!response || response.error || !response.access_token){
+        googleAccessToken=""; googleConnected=false;
+        if(response && (response.error==="invalid_client" || response.error==="origin_mismatch")){
+          googleClientId=""; metaPut("googleClientId","");
+          setGoogleStat("setup");
+        } else { setGoogleStat("error"); }
+        return;
+      }
+      if(google.accounts.oauth2.hasGrantedAllScopes &&
+         !google.accounts.oauth2.hasGrantedAllScopes(response,GOOGLE_SCOPE)){
+        googleAccessToken=""; googleConnected=false;
+        setGoogleStat("error");
+        toast("Google Drive 권한이 승인되지 않았습니다");
+        return;
+      }
+      googleAccessToken=response.access_token;
+      googleTokenExpiresAt=Date.now()+(Math.max(60,Number(response.expires_in)||3600)-30)*1000;
+      googleConnected=true;
+      afterGoogleConnect();
+    },
+    error_callback:function(){ setGoogleStat("error"); }
+  });
+  return true;
+}
+function googleTokenValid(){
+  return googleConnected && googleAccessToken && Date.now()<googleTokenExpiresAt;
+}
+function googleFetch(url, options){
+  options=options||{};
+  options.headers=options.headers||{};
+  options.headers.Authorization="Bearer "+googleAccessToken;
+  return fetch(url,options).then(function(response){
+    if(response.status===401){
+      googleAccessToken=""; googleConnected=false;
+      setGoogleStat("reconnect");
+      throw new Error("Google token expired");
+    }
+    if(!response.ok){
+      return response.text().then(function(text){ throw new Error(text||("Google Drive HTTP "+response.status)); });
+    }
+    if(response.status===204) return null;
+    var ct=response.headers.get("content-type")||"";
+    return ct.indexOf("application/json")>=0 ? response.json() : response.text();
+  });
+}
+function findGoogleFile(){
+  if(googleFileId) return Promise.resolve(googleFileId);
+  var q=encodeURIComponent("name='prompts.json' and trashed=false");
+  var url=GOOGLE_API+"/files?spaces=appDataFolder&pageSize=1&orderBy=modifiedTime%20desc&q="+q+"&fields=files(id%2CmodifiedTime)";
+  return googleFetch(url).then(function(data){
+    var files=(data&&data.files)||[];
+    if(!files.length) return "";
+    googleFileId=files[0].id;
+    lastGoogleMtime=files[0].modifiedTime||"";
+    return googleFileId;
+  });
+}
+function readGoogleFile(){
+  return findGoogleFile().then(function(id){
+    if(!id) return null;
+    return googleFetch(GOOGLE_API+"/files/"+encodeURIComponent(id)+"?alt=media").then(function(data){
+      if(!data) return null;
+      if(typeof data==="string"){ try{ return JSON.parse(data); }catch(e){ return null; } }
+      return data;
+    });
+  });
+}
+function googlePayload(){
+  return JSON.stringify({app:"prompt-store",version:1,updated:nowISO(),prompts:prompts,deleted:deletedMap},null,2);
+}
+function createGoogleFile(payload){
+  var boundary="promptstore_"+Date.now();
+  var body="--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+
+    JSON.stringify({name:"prompts.json",parents:["appDataFolder"]})+
+    "\r\n--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+
+    payload+"\r\n--"+boundary+"--";
+  return googleFetch(GOOGLE_UPLOAD+"/files?uploadType=multipart&fields=id%2CmodifiedTime",{
+    method:"POST",
+    headers:{"Content-Type":"multipart/related; boundary="+boundary},
+    body:body
+  });
+}
+function updateGoogleFile(payload){
+  return googleFetch(GOOGLE_UPLOAD+"/files/"+encodeURIComponent(googleFileId)+"?uploadType=media&fields=id%2CmodifiedTime",{
+    method:"PATCH",
+    headers:{"Content-Type":"application/json; charset=UTF-8"},
+    body:payload
+  });
+}
+function writeGoogleFile(){
+  if(!googleTokenValid()) return Promise.resolve(false);
+  if(googleWriteBusy){ googleWriteAgain=true; return Promise.resolve(true); }
+  googleWriteBusy=true;
+  setGoogleStat("saving");
+  return findGoogleFile().then(function(id){
+    var payload=googlePayload();
+    return id ? updateGoogleFile(payload) : createGoogleFile(payload);
+  }).then(function(data){
+    if(data&&data.id) googleFileId=data.id;
+    if(data&&data.modifiedTime) lastGoogleMtime=data.modifiedTime;
+    setGoogleStat("saved");
+    return true;
+  },function(){
+    setGoogleStat("error");
+    return false;
+  }).then(function(ok){
+    googleWriteBusy=false;
+    if(googleWriteAgain){ googleWriteAgain=false; writeGoogleFile(); }
+    return ok;
+  });
+}
+function pushGoogle(){
+  if(!googleConnected) return;
+  if(!googleTokenValid()){ setGoogleStat("reconnect"); return; }
+  if(googleSyncTimer) clearTimeout(googleSyncTimer);
+  googleSyncTimer=setTimeout(writeGoogleFile,800);
+}
+function syncGoogleNow(){
+  if(!googleTokenValid()){ setGoogleStat("reconnect"); return Promise.resolve(); }
+  setGoogleStat("saving");
+  return readGoogleFile().then(function(data){
+    if(data&&mergeData(data)){ persistMerged(); render(); }
+    return writeGoogleFile();
+  }).then(function(ok){
+    if(ok){ setGoogleStat("saved"); toast("Google Drive 동기화 완료"); }
+    return ok;
+  },function(){ setGoogleStat("error"); return false; });
+}
+function checkGoogleChanged(){
+  if(!googleTokenValid()||!googleFileId) return;
+  googleFetch(GOOGLE_API+"/files/"+encodeURIComponent(googleFileId)+"?fields=modifiedTime").then(function(meta){
+    var mt=(meta&&meta.modifiedTime)||"";
+    if(mt && mt>lastGoogleMtime){
+      return readGoogleFile().then(function(data){
+        lastGoogleMtime=mt;
+        if(data&&mergeData(data)){ persistMerged(); render(); }
+        setGoogleStat("saved");
+      });
+    }
+  }).catch(function(){});
+}
+function startGooglePoll(){
+  if(googlePollTimer) clearInterval(googlePollTimer);
+  googlePollTimer=setInterval(checkGoogleChanged,15000);
+}
+function afterGoogleConnect(){
+  syncGoogleNow().then(function(ok){ if(ok) startGooglePoll(); });
+}
+function onGoogleBtn(){
+  if(googleTokenValid()){ syncGoogleNow(); return; }
+  if(!googleClientId && !configureGoogleClientId()) return;
+  if(!initGoogleTokenClient()){
+    setGoogleStat("loading");
+    toast("Google 연결 모듈을 불러온 뒤 다시 눌러주세요");
+    return;
+  }
+  try{ googleTokenClient.requestAccessToken({prompt:""}); }
+  catch(e){ setGoogleStat("error"); }
+}
+function loadGoogleConfig(){
+  metaGet("googleClientId",function(id){
+    if(validGoogleClientId(id)){ googleClientId=id; initGoogleTokenClient(); setGoogleStat("off"); }
+    else { setGoogleStat("setup"); }
+  });
+  window.addEventListener("focus",checkGoogleChanged);
+}
+
+/* ---------------- 폴더 동기화 (File System Access · Chrome/Edge 보조) ---------------- */
 function setFolderStat(state){
   var el=$("folderStat"), btn=$("folderBtn");
   if(!el) return;
   if(state==="saved"){ el.textContent="폴더 동기화 켜짐 ✓"; el.className="folderstat on"; if(btn) btn.textContent="지금 동기화"; }
   else if(state==="saving"){ el.textContent="폴더에 저장 중…"; el.className="folderstat"; }
   else if(state==="reconnect"){ el.textContent="폴더 다시 연결이 필요합니다"; el.className="folderstat"; if(btn) btn.textContent="폴더 다시 연결"; }
-  else if(state==="unsupported"){ el.textContent="폴더 연결은 크롬·엣지 데스크탑 전용 · 태블릿은 내보내기/불러오기로 이동"; el.className="folderstat"; if(btn){ btn.style.opacity="0.5"; } }
+  else if(state==="unsupported"){ if($("folderOnly")) $("folderOnly").style.display="none"; }
   else if(state==="error"){ el.textContent="폴더 쓰기 오류 — 다시 연결하세요"; el.className="folderstat err"; }
   else { el.textContent="연결 안 됨 · 크롬/엣지 데스크탑"; el.className="folderstat"; if(btn) btn.textContent="드라이브 폴더 연결"; }
 }
@@ -988,6 +1217,7 @@ function renderVarEditor(p){
 function bind(){
   $("search").oninput=function(){ query=this.value; render(); };
   $("newbtn").onclick=newPrompt;
+  $("googleBtn").onclick=onGoogleBtn;
   $("folderBtn").onclick=onFolderBtn;
   $("delbtn").onclick=delPrompt;
   $("exportbtn").onclick=exportJSON;
@@ -1010,6 +1240,7 @@ openDB(function(){
       deletedMap = d || {};
       bind();
       render();
+      loadGoogleConfig();
       tryReconnectFolder();
     });
   });
